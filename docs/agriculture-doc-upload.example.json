@@ -1,0 +1,32 @@
+[
+  {
+    "doc_id": "mardi-rice-fertilizer-2025-bm",
+    "paired_doc_id": "mardi-rice-fertilizer-2025-en",
+    "title": "Panduan Baja Padi 2025",
+    "source": "MARDI",
+    "source_type": "pdf",
+    "local_file_path": "documents/panduan-baja-padi-2025.pdf",
+    "language": "bm",
+    "category": "fertilizer",
+    "region": "malaysia",
+    "crop": "paddy",
+    "tags": ["baja", "urea", "nitrogen"],
+    "storage_path": "agriculture-docs/mardi/panduan-baja-padi-2025.pdf",
+    "file_name": "panduan-baja-padi-2025.pdf"
+  },
+  {
+    "doc_id": "mardi-rice-fertilizer-2025-en",
+    "paired_doc_id": "mardi-rice-fertilizer-2025-bm",
+    "title": "Rice Fertilizer Guide 2025",
+    "source": "MARDI",
+    "source_type": "pdf",
+    "local_file_path": "documents/rice-fertilizer-guide-2025.pdf",
+    "language": "en",
+    "category": "fertilizer",
+    "region": "malaysia",
+    "crop": "paddy",
+    "tags": ["fertilizer", "urea", "nitrogen"],
+    "storage_path": "agriculture-docs/mardi/rice-fertilizer-guide-2025.pdf",
+    "file_name": "rice-fertilizer-guide-2025.pdf"
+  }
+]

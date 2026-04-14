@@ -1,0 +1,65 @@
+[
+  {
+    "name": "fao-irrigation-guide-en",
+    "title": "FAO Irrigation Guide",
+    "url": "https://www.fao.org/4/t7202e/t7202e07.htm",
+    "source": "FAO",
+    "language": "en",
+    "category": "irrigation",
+    "tags": ["irrigation", "water", "paddy"]
+  },
+  {
+    "name": "mardi-paddy-rice-research",
+    "title": "Paddy & Rice Research - MARDI",
+    "url": "https://www.mardi.gov.my/en/penyelidikan/padi-beras.html",
+    "source": "MARDI",
+    "language": "en",
+    "category": "crop_management",
+    "tags": ["padi", "beras", "varieti", "baja", "penyakit", "penyelidikan"]
+  },
+  {
+    "name": "fftc-sociological-rice-malaysia",
+    "title": "Sociological Issues and Challenges of Rice Production in Malaysia",
+    "url": "https://ap.fftc.org.tw/article/3473",
+    "source": "FFTC Agricultural Policy Platform",
+    "language": "en",
+    "category": "rice_production",
+    "tags": ["padi", "petani", "B40", "pengeluaran beras", "dasar pertanian", "MARDI", "food security"]
+  },
+  {
+    "name": "frontiers-rice-paddy-malaysia-governance",
+    "title": "Rice and Paddy Industry in Malaysia: Governance, Policies, Research Trends, Technology Adoption and Resilience",
+    "url": "https://www.frontiersin.org/journals/sustainable-food-systems/articles/10.3389/fsufs.2023.1093605/full",
+    "source": "Frontiers in Sustainable Food Systems",
+    "language": "en",
+    "category": "policy_and_technology",
+    "tags": ["dasar", "teknologi pertanian", "padi malaysia", "smart farming", "resilience", "governance"]
+  },
+  {
+    "name": "barriers-sustainable-rice-farming-malaysia-granary-zones",
+    "title": "Barriers to Sustainable Rice Farming and Food Security in Malaysia’s Primary Granary Zones",
+    "url": "https://rsisinternational.org/journals/ijriss/articles/barriers-to-sustainable-rice-farming-and-food-security-in-malaysias-primary-granary-zones/",
+    "source": "International Journal of Research and Innovation in Social Science",
+    "language": "en",
+    "category": "policy_and_sustainability",
+    "tags": ["food security", "padi malaysia", "sustainable farming", "granary zones", "barriers"]
+  },
+  {
+    "name": "paddy-planting-harvesting-malaysia",
+    "title": "Paddy Planting & Harvesting in Malaysia",
+    "url": "https://www.malaysiarice.com/paddy-planting-harvesting/",
+    "source": "Malaysia Rice Industry Portal",
+    "language": "en",
+    "category": "agriculture_process",
+    "tags": ["padi malaysia", "planting", "harvesting", "rice cultivation", "farming process"]
+  },
+  {
+    "name": "sustainability-criteria-paddy-farming-malaysia-review",
+    "title": "Review of Sustainability Criteria for Paddy Farming in Malaysia Based on Environmental, Economic and Social Dimensions",
+    "url": "https://rsisinternational.org/journals/ijriss/articles/review-of-sustainability-criteria-for-paddy-farming-in-malaysia-based-on-environmental-economic-and-social-dimensions/",
+    "source": "International Journal of Research and Innovation in Social Science",
+    "language": "en",
+    "category": "sustainability_review",
+    "tags": ["sustainability", "padi malaysia", "environmental", "economic", "social", "farming"]
+  }
+]
