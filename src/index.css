@@ -99,4 +99,22 @@
     background: hsl(var(--outline-variant));
     border-radius: 10px;
   }
+  .scanner-sweep {
+    background: #4edea3;
+    box-shadow: 0 0 15px rgba(78, 222, 163, 0.9);
+    animation: scanner-sweep 3s linear infinite;
+    top: 18%;
+  }
+}
+
+@keyframes scanner-sweep {
+  0% {
+    top: 12%;
+  }
+  50% {
+    top: 88%;
+  }
+  100% {
+    top: 12%;
+  }
 }
