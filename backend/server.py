@@ -1,11 +1,15 @@
 from pathlib import Path
 import sys
+from io import BytesIO
 
 from fastapi import FastAPI
+from fastapi import File
 from fastapi import HTTPException
+from fastapi import UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
+from PIL import Image
 from pydantic import BaseModel
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -158,13 +162,80 @@ def cv_spec() -> dict:
 @app.post("/cv/predict")
 def cv_predict(request: CVPredictionRequest) -> dict:
     try:
-        from backend.cv.inference import ModelNotReadyError, load_image_from_request, predict_image
+        from backend.cv.inference import (
+            ModelNotReadyError,
+            load_contract,
+            load_image_from_request,
+            predict_image,
+        )
 
         image = load_image_from_request(request.image_path, request.image_base64)
         return predict_image(image)
     except ModelNotReadyError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # Return a structured fallback so frontend scanner pages can still render a valid response.
+        return {
+            "predicted_label": "unknown",
+            "confidence": 0.0,
+            "top_predictions": [],
+            "contract": load_contract(),
+            "model_ready": False,
+            "status": "model_not_ready",
+            "message": str(exc),
+        }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"CV prediction failed: {exc}") from exc
+
+
+def _read_uploaded_image(image: UploadFile | None, file: UploadFile | None) -> Image.Image:
+    selected = image or file
+    if selected is None:
+        raise HTTPException(status_code=422, detail="Provide either 'image' or 'file' in multipart form-data.")
+
+    try:
+        content = selected.file.read()
+        if not content:
+            raise HTTPException(status_code=422, detail="Uploaded file is empty.")
+        return Image.open(BytesIO(content))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Unable to read uploaded image: {exc}") from exc
+
+
+def _predict_from_uploaded_image(image: UploadFile | None, file: UploadFile | None) -> dict:
+    try:
+        from backend.cv.inference import ModelNotReadyError, load_contract, predict_image
+
+        decoded_image = _read_uploaded_image(image=image, file=file)
+        return predict_image(decoded_image)
+    except ModelNotReadyError as exc:
+        return {
+            "predicted_label": "unknown",
+            "confidence": 0.0,
+            "top_predictions": [],
+            "contract": load_contract(),
+            "model_ready": False,
+            "status": "model_not_ready",
+            "message": str(exc),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"CV prediction failed: {exc}") from exc
+
+
+@app.post("/scan")
+def scan_image(image: UploadFile | None = File(default=None), file: UploadFile | None = File(default=None)) -> dict:
+    return _predict_from_uploaded_image(image=image, file=file)
+
+
+@app.post("/predict-image")
+def predict_image_alias(image: UploadFile | None = File(default=None), file: UploadFile | None = File(default=None)) -> dict:
+    return _predict_from_uploaded_image(image=image, file=file)
+
+
+@app.post("/detect-disease")
+def detect_disease_alias(image: UploadFile | None = File(default=None), file: UploadFile | None = File(default=None)) -> dict:
+    return _predict_from_uploaded_image(image=image, file=file)

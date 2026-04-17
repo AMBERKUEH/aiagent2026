@@ -5,12 +5,18 @@ type ScanResult = {
   diseaseName: string;
   confidence: number;
   summary: string;
+  backendStatus: string;
+  backendMessage: string;
   severity: string;
   spreadRisk: string;
   priority: string;
   impact: string;
   recommendation: string;
   checklist: string[];
+  possibleRisks: Array<{
+    label: string;
+    confidence: number | null;
+  }>;
   modelName: string;
   inferenceTime: string;
 };
@@ -56,19 +62,22 @@ const labelChecklistMap: Record<string, string[]> = {
     "Review vector pressure in the field and watch for leafhopper activity during the next scouting pass.",
     "Mark the affected zone so you can compare symptom progression over the coming week.",
   ],
-  unknown: defaultChecklist,
+  unclassified: defaultChecklist,
 };
 
 const emptyResult: ScanResult = {
   diseaseName: "Awaiting scan",
   confidence: 0,
   summary: "Upload a paddy leaf photo or capture one with the camera to send it to the backend for analysis.",
+  backendStatus: "idle",
+  backendMessage: "",
   severity: "Pending",
   spreadRisk: "Unknown",
   priority: "Ready When You Are",
   impact: "No analysis has been run yet",
   recommendation: "Once an image is submitted, SmartPaddy will display the detected class, confidence score, and the backend recommendation here.",
   checklist: defaultChecklist,
+  possibleRisks: [],
   modelName: "Backend detector",
   inferenceTime: "--",
 };
@@ -149,6 +158,37 @@ const buildFallbackSummary = (
   return `The backend analyzed ${fileName} and returned ${toTitleCase(rawDiseaseName)}${confidenceText}.${alternativesText}`;
 };
 
+const safeJsonParse = (value: string): Record<string, unknown> | null => {
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object") return parsed as Record<string, unknown>;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const extractJsonObject = (text: string): Record<string, unknown> | null => {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    return safeJsonParse(fenced[1].trim());
+  }
+
+  return safeJsonParse(text.trim());
+};
+
+const ensureLongRecommendation = (recommendation: string, diseaseName: string) => {
+  const normalized = recommendation.trim();
+  if (!normalized || normalized.toLowerCase() === "not provided") {
+    return `No detailed recommendation was returned by the backend for ${diseaseName}. Do a focused field walk within 24 hours, check nearby plants for similar symptoms, compare severity across zones, and confirm treatment choice with your local agronomy protocol before applying inputs.`;
+  }
+
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  if (wordCount >= 28) return normalized;
+
+  return `${normalized} Also run a follow-up field check within 24 to 48 hours, compare symptom spread across neighboring rows, and document what changed before deciding on the next intervention step.`;
+};
+
 const normalizeScanResponse = (payload: unknown, fileName: string): ScanResult => {
   if (!payload || typeof payload !== "object") {
     return {
@@ -160,6 +200,44 @@ const normalizeScanResponse = (payload: unknown, fileName: string): ScanResult =
   }
 
   const source = payload as Record<string, unknown>;
+  const status = asString(source.status);
+  if (status === "model_not_ready") {
+    const contract = source.contract && typeof source.contract === "object"
+      ? (source.contract as Record<string, unknown>)
+      : null;
+    const statusMessage = pickString(
+      source,
+      ["message", "detail"],
+      "Scanner backend is online, but the CV model artifact has not been exported yet."
+    );
+
+    return {
+      ...emptyResult,
+      diseaseName: "Model Setup Needed",
+      confidence: 0,
+      summary: statusMessage,
+      backendStatus: status,
+      backendMessage: statusMessage,
+      severity: pickString(source, ["severity", "risk_level"], "Not provided"),
+      spreadRisk: pickString(source, ["spread_risk", "spreadRisk"], "Not provided"),
+      priority: pickString(source, ["priority", "urgency"], toTitleCase(status)),
+      impact: pickString(source, ["impact", "impact_summary"], "No image inference available yet"),
+      recommendation: pickString(
+        source,
+        ["recommendation", "recommended_action", "action", "advice"],
+        "Run the CV training/export flow once to generate backend/cv/artifacts/current/model.tflite, then retry this scan."
+      ),
+      checklist: [
+        "Install CV dependencies from backend/requirements-cv.txt.",
+        "Prepare or import dataset images into backend/cv/data.",
+        "Run python -m backend.cv.cli train to export model artifacts.",
+      ],
+      possibleRisks: [],
+      modelName: pickString(contract ?? {}, ["model_name"], "CV model"),
+      inferenceTime: "--",
+    };
+  }
+
   const primaryDetection = Array.isArray(source.detections) && source.detections[0] && typeof source.detections[0] === "object"
     ? (source.detections[0] as Record<string, unknown>)
     : null;
@@ -182,42 +260,127 @@ const normalizeScanResponse = (payload: unknown, fileName: string): ScanResult =
   const rawDiseaseName = pickString(
     merged,
     ["disease_name", "disease", "label", "class_name", "class", "prediction", "predicted_class", "predicted_label", "name", "fallback_label"],
-    "unknown"
+    "unclassified"
   );
   const normalizedKey = rawDiseaseName.toLowerCase().replace(/[\s-]+/g, "_");
   const confidence = formatConfidence(pickNumber(merged, ["confidence", "score", "probability"], 0));
+  const backendStatus = pickString(merged, ["status"], "ok");
+  const backendMessage = pickString(merged, ["message", "detail"], "");
+  const possibleRisks = topPredictions
+    .map((item) => {
+      const label = asString(item.label);
+      if (!label) return null;
+
+      const rawConfidence = typeof item.confidence === "number"
+        ? item.confidence
+        : typeof item.confidence === "string" && item.confidence.trim()
+          ? Number(item.confidence)
+          : null;
+
+      return {
+        label: toTitleCase(label),
+        confidence: rawConfidence !== null && Number.isFinite(rawConfidence)
+          ? formatConfidence(rawConfidence)
+          : null,
+      };
+    })
+    .filter((item): item is { label: string; confidence: number | null } => item !== null);
   const checklist = asStringArray(merged.checklist).length > 0
     ? asStringArray(merged.checklist)
     : asStringArray(merged.recommendations).length > 0
       ? asStringArray(merged.recommendations)
-      : labelChecklistMap[normalizedKey] ?? defaultChecklist;
+      : [];
 
   return {
     diseaseName: toTitleCase(rawDiseaseName),
     confidence,
+    backendStatus,
+    backendMessage,
     summary: pickString(
       merged,
       ["summary", "description", "analysis", "message", "details"],
       buildFallbackSummary(fileName, rawDiseaseName, confidence, topPredictions)
     ),
-    severity: toTitleCase(pickString(merged, ["severity", "risk_level"], confidence >= 80 ? "High" : confidence >= 55 ? "Moderate" : "Low")),
-    spreadRisk: toTitleCase(pickString(merged, ["spread_risk", "spreadRisk"], confidence >= 80 ? "Elevated" : confidence >= 55 ? "Watchlist" : "Monitor")),
-    priority: toTitleCase(pickString(merged, ["priority", "urgency"], confidence >= 80 ? "Inspect Immediately" : "Field Review This Week")),
-    impact: pickString(
-      merged,
-      ["impact", "impact_summary"],
-      normalizedKey === "healthy" ? "No visible disease signal detected in this image" : "Visual disease signal detected and needs field confirmation"
-    ),
-    recommendation: pickString(
-      merged,
-      ["recommendation", "recommended_action", "action", "advice"],
-      normalizedKey === "healthy"
-        ? "No urgent treatment is suggested from this scan. Keep monitoring nearby leaves and capture another image if symptoms appear."
-        : "Review the surrounding leaves, compare symptoms across nearby plants, and confirm the next treatment step with your agronomy playbook."
+    severity: toTitleCase(pickString(merged, ["severity", "risk_level"], "Not provided")),
+    spreadRisk: toTitleCase(pickString(merged, ["spread_risk", "spreadRisk"], "Not provided")),
+    priority: toTitleCase(pickString(merged, ["priority", "urgency"], "Not provided")),
+    impact: pickString(merged, ["impact", "impact_summary"], "Not provided"),
+    recommendation: ensureLongRecommendation(
+      pickString(merged, ["recommendation", "recommended_action", "action", "advice"], "Not provided"),
+      toTitleCase(rawDiseaseName)
     ),
     checklist,
+    possibleRisks,
     modelName: pickString(merged, ["model", "model_name", "engine"], "Backend detector"),
-    inferenceTime: pickString(merged, ["inference_time", "latency", "processing_time"], "--"),
+    inferenceTime: pickString(merged, ["inference_time", "latency", "processing_time"], "Not provided"),
+  };
+};
+
+const enrichScanResultWithGroq = async (
+  baseResult: ScanResult,
+  payload: unknown,
+  fileName: string
+): Promise<Partial<ScanResult> | null> => {
+  if (baseResult.backendStatus === "model_not_ready") return null;
+
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) return null;
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.2,
+      max_tokens: 400,
+          messages: [
+        {
+          role: "system",
+          content:
+            "You are an agronomy assistant. Return JSON only with keys: severity, spreadRisk, priority, impact, recommendation, checklist. recommendation must be 3 to 5 practical sentences (at least 40 words). checklist must be an array with 4 to 6 short actionable strings.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            file_name: fileName,
+            predicted_label: baseResult.diseaseName,
+            confidence_percent: baseResult.confidence,
+            possible_risks: baseResult.possibleRisks,
+            backend_status: baseResult.backendStatus,
+            backend_message: baseResult.backendMessage,
+            backend_payload: payload,
+          }),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) return null;
+
+  const parsed = extractJsonObject(content);
+  if (!parsed) return null;
+
+  const checklist = asStringArray(parsed.checklist);
+
+  return {
+    severity: pickString(parsed, ["severity"], baseResult.severity),
+    spreadRisk: pickString(parsed, ["spreadRisk", "spread_risk"], baseResult.spreadRisk),
+    priority: pickString(parsed, ["priority"], baseResult.priority),
+    impact: pickString(parsed, ["impact"], baseResult.impact),
+    recommendation: ensureLongRecommendation(
+      pickString(parsed, ["recommendation"], baseResult.recommendation),
+      baseResult.diseaseName
+    ),
+    checklist: checklist.length > 0 ? checklist : baseResult.checklist,
   };
 };
 
@@ -284,6 +447,7 @@ const ScannerPage = () => {
           continue;
         }
 
+        const startedAt = performance.now();
         const response = endpoint === "/api/cv/predict"
           ? await fetch(endpoint, {
               method: "POST",
@@ -333,7 +497,28 @@ const ScannerPage = () => {
         }
 
         const payload = await response.json();
-        setAnalysisResult(normalizeScanResponse(payload, file.name));
+        const elapsedMs = Math.max(1, Math.round(performance.now() - startedAt));
+        const normalized = normalizeScanResponse(payload, file.name);
+        const withInference = {
+          ...normalized,
+          inferenceTime: `${elapsedMs} ms`,
+        };
+
+        setAnalysisResult(withInference);
+
+        try {
+          const groqFields = await enrichScanResultWithGroq(withInference, payload, file.name);
+          if (groqFields) {
+            setAnalysisResult((current) => ({
+              ...current,
+              ...groqFields,
+              inferenceTime: `${elapsedMs} ms`,
+            }));
+          }
+        } catch {
+          // Keep backend-derived values if Groq enrichment is unavailable.
+        }
+
         setAnalysisError(null);
         setIsAnalyzing(false);
         return;
@@ -458,6 +643,18 @@ const ScannerPage = () => {
   const confidenceCircumference = 2 * Math.PI * 80;
   const confidenceOffset = confidenceCircumference * (1 - analysisResult.confidence / 100);
   const isWaitingForImage = !selectedImageFile && !isCameraActive;
+  const scannerHeadline = isAnalyzing
+    ? "Neural Engine Processing..."
+    : isWaitingForImage
+      ? "Scanner Ready"
+      : analysisResult.backendStatus === "model_not_ready"
+        ? "Model Setup Required"
+        : "Scan Complete";
+  const scannerSubtitle = isAnalyzing
+    ? "Your image is being sent to the backend for disease classification and confidence scoring."
+    : isWaitingForImage
+      ? "Upload or capture a paddy leaf image to run the backend disease scan."
+      : analysisResult.summary;
 
   const modelStats = useMemo(
     () => [
@@ -475,14 +672,8 @@ const ScannerPage = () => {
             <div className="flex items-center gap-4">
               <div className={`h-2.5 w-2.5 rounded-full ${isAnalyzing ? "animate-pulse bg-[#4edea3]" : "bg-primary/30"}`} />
               <div>
-                <p className="font-headline text-lg font-semibold tracking-[0.02em] text-primary">
-                  {isAnalyzing ? "Neural Engine Processing..." : "Scanner Ready"}
-                </p>
-                <p className="text-sm text-on-surface-variant">
-                  {isAnalyzing
-                    ? "Your image is being sent to the backend for disease classification and confidence scoring."
-                    : "Upload or capture a paddy leaf image to run the backend disease scan."}
-                </p>
+                <p className="font-headline text-lg font-semibold tracking-[0.02em] text-primary">{scannerHeadline}</p>
+                <p className="text-sm text-on-surface-variant">{scannerSubtitle}</p>
               </div>
             </div>
             <div className="flex items-center gap-6 sm:gap-10">
@@ -660,7 +851,24 @@ const ScannerPage = () => {
                   <span className="material-symbols-outlined text-base">warning</span>
                   Impact: {analysisResult.impact}
                 </p>
-                <p className="max-w-lg text-sm leading-7 text-white/80">{analysisResult.summary}</p>
+                {analysisResult.possibleRisks.length > 0 && (
+                  <div className="pt-1">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">Possible Risks</p>
+                    <div className="mt-3 flex flex-row gap-2">
+                      {analysisResult.possibleRisks.map((risk) => (
+                        <div key={`${risk.label}-${risk.confidence ?? "na"}`} className="rounded-xl bg-white/10 px-3 py-3">
+                          <p className="text-sm font-semibold text-white">{risk.label}</p>
+                          <p className="mt-1 text-xs text-white/70">
+                            {risk.confidence !== null ? `${risk.confidence}% confidence` : "Confidence not provided"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {analysisResult.backendMessage && analysisResult.backendMessage !== analysisResult.summary && (
+                  <p className="max-w-lg text-xs leading-6 text-white/65">{analysisResult.backendMessage}</p>
+                )}
               </div>
             </div>
 
@@ -693,12 +901,19 @@ const ScannerPage = () => {
                 Field Checklist
               </p>
               <div className="mt-4 space-y-3">
-                {analysisResult.checklist.map((item) => (
-                  <div key={item} className="flex gap-3 rounded-2xl bg-white/8 px-4 py-3">
-                    <span className="material-symbols-outlined mt-0.5 text-[#4edea3]">check_circle</span>
-                    <p className="text-sm leading-6 text-white/80">{item}</p>
+                {analysisResult.checklist.length > 0 ? (
+                  analysisResult.checklist.map((item) => (
+                    <div key={item} className="flex gap-3 rounded-2xl bg-white/8 px-4 py-3">
+                      <span className="material-symbols-outlined mt-0.5 text-[#4edea3]">check_circle</span>
+                      <p className="text-sm leading-6 text-white/80">{item}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex gap-3 rounded-2xl bg-white/8 px-4 py-3">
+                    <span className="material-symbols-outlined mt-0.5 text-[#4edea3]">info</span>
+                    <p className="text-sm leading-6 text-white/80">No checklist returned by backend.</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </div>
