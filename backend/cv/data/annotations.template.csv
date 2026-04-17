@@ -1,0 +1,4 @@
+image_id,file_path,label_primary,split,growth_stage,lighting,distance_cm,device_model,field_id,geo_region,severity_0_3,verified_by_expert
+rice-001,images/rice-001.png,healthy,train,tillering,morning,30,Pixel-6,field-a,kedah,0,true
+rice-002,images/rice-002.png,bacterial_blight,val,vegetative,shade,25,Pixel-6,field-b,perlis,2,true
+rice-003,images/rice-003.png,hispa,test,reproductive,afternoon,35,Redmi-Note,field-c,selangor,2,false

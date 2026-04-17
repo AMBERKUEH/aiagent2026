@@ -1,0 +1,1 @@
+"""SmartPaddy backend package."""

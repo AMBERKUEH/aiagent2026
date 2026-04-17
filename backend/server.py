@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 from fastapi import FastAPI
 from fastapi import HTTPException
@@ -7,6 +8,9 @@ import joblib
 import pandas as pd
 from pydantic import BaseModel
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
 
 MODEL_PATH = Path(__file__).with_name("crop_yield_model.pkl")
 
@@ -20,17 +24,45 @@ class PredictionRequest(BaseModel):
     waterLevel: float | None = None
 
 
+class CVPredictionRequest(BaseModel):
+    image_path: str | None = None
+    image_base64: str | None = None
+
+
 def load_bundle() -> dict:
     return joblib.load(MODEL_PATH)
 
 
-bundle = load_bundle()
-model = bundle["model"]
-test_r2 = float(bundle.get("test_r2", 0.4))
-feature_names = bundle.get(
-    "feature_names",
-    ["humidity", "light_intensity", "soil_moisture", "temperature", "water_level"],
-)
+bundle_cache: dict | None = None
+bundle_error: Exception | None = None
+
+
+def get_bundle() -> dict:
+    global bundle_cache, bundle_error
+
+    if bundle_cache is not None:
+        return bundle_cache
+    if bundle_error is not None:
+        raise RuntimeError(f"Yield model is unavailable: {bundle_error}") from bundle_error
+
+    try:
+        bundle_cache = load_bundle()
+    except Exception as exc:
+        bundle_error = exc
+        raise RuntimeError(f"Yield model is unavailable: {exc}") from exc
+
+    return bundle_cache
+
+
+def get_model_runtime() -> tuple[object, float, list[str]]:
+    bundle = get_bundle()
+    model = bundle["model"]
+    test_r2 = float(bundle.get("test_r2", 0.4))
+    feature_names = bundle.get(
+        "feature_names",
+        ["humidity", "light_intensity", "soil_moisture", "temperature", "water_level"],
+    )
+    return model, test_r2, feature_names
 
 app = FastAPI(title="Smart Paddy Prediction API")
 app.add_middleware(
@@ -44,8 +76,20 @@ app.add_middleware(
 
 @app.get("/health")
 def healthcheck() -> dict:
+    try:
+        _, test_r2, feature_names = get_model_runtime()
+        yield_model_ready = True
+        yield_model_error = None
+    except RuntimeError as exc:
+        test_r2 = 0.0
+        feature_names = ["humidity", "light_intensity", "soil_moisture", "temperature", "water_level"]
+        yield_model_ready = False
+        yield_model_error = str(exc)
+
     return {
         "status": "ok",
+        "yield_model_ready": yield_model_ready,
+        "yield_model_error": yield_model_error,
         "test_r2": test_r2,
         "feature_names": feature_names,
     }
@@ -53,6 +97,11 @@ def healthcheck() -> dict:
 
 @app.post("/predict")
 def predict(request: PredictionRequest) -> dict:
+    try:
+        model, test_r2, feature_names = get_model_runtime()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     water_level = request.water_level if request.water_level is not None else request.waterLevel
     if water_level is None:
       raise HTTPException(status_code=422, detail="Missing water_level")
@@ -77,3 +126,45 @@ def predict(request: PredictionRequest) -> dict:
         "test_r2": test_r2,
         "features": feature_map,
     }
+
+
+@app.get("/cv/health")
+def cv_healthcheck() -> dict:
+    from backend.cv.config import CURRENT_CONTRACT_PATH, CURRENT_MODEL_PATH, MODEL_NAME
+
+    return {
+        "status": "ok",
+        "model_name": MODEL_NAME,
+        "model_ready": CURRENT_MODEL_PATH.exists(),
+        "contract_ready": CURRENT_CONTRACT_PATH.exists(),
+    }
+
+
+@app.get("/cv/spec")
+def cv_spec() -> dict:
+    from backend.cv.config import CONFIDENCE_THRESHOLD, DATASET_SOURCE, FALLBACK_LABEL, INPUT_SIZE, LABELS, MODEL_NAME
+
+    return {
+        "model_name": MODEL_NAME,
+        "task": "image_classification",
+        "input_size": {"width": INPUT_SIZE[0], "height": INPUT_SIZE[1], "channels": 3},
+        "labels": LABELS,
+        "fallback_label": FALLBACK_LABEL,
+        "confidence_threshold": CONFIDENCE_THRESHOLD,
+        "dataset_source": DATASET_SOURCE,
+    }
+
+
+@app.post("/cv/predict")
+def cv_predict(request: CVPredictionRequest) -> dict:
+    try:
+        from backend.cv.inference import ModelNotReadyError, load_image_from_request, predict_image
+
+        image = load_image_from_request(request.image_path, request.image_base64)
+        return predict_image(image)
+    except ModelNotReadyError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"CV prediction failed: {exc}") from exc
