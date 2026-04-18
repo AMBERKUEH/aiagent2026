@@ -31,31 +31,38 @@ python -m backend.cv.cli init-workspace
 python -m backend.cv.cli fetch-kaggle --import-data
 ```
 
-4. Download and import the second Kaggle dataset (adds healthy and more diversity):
+4. Download and import the second Kaggle dataset (adds healthy + hispa and more diversity):
 
 ```bash
 python -m backend.cv.cli fetch-kaggle --dataset-slug "nizorogbezuode/rice-leaf-images" --import-data
 ```
 
-5. Import your own healthy images (recommended):
+5. Download the third Kaggle dataset and import only healthy-category images:
+
+```bash
+python -m backend.cv.cli fetch-kaggle --dataset-slug "rajkumar898/rice-plant-dataset"
+python -m backend.cv.cli import-healthy --source-dir "C:\Users\<you>\.cache\kagglehub\datasets\rajkumar898\rice-plant-dataset\versions\1"
+```
+
+6. Import your own healthy images (optional):
 
 ```bash
 python -m backend.cv.cli import-healthy --source-dir "backend/cv/data/healthy_samples"
 ```
 
-6. Validate the manifest:
+7. Validate the manifest:
 
 ```bash
 python -m backend.cv.cli validate-dataset
 ```
 
-7. Train and export the classifier:
+8. Train and export the classifier:
 
 ```bash
 python -m backend.cv.cli train --epochs 20 --batch-size 16
 ```
 
-8. Test the model export:
+9. Test the model export:
 
 ```bash
 python -m backend.cv.cli test-model
@@ -94,9 +101,9 @@ The active export is published to `backend/cv/artifacts/current/`:
 - `Blast` -> `blast`
 - `Leaf Blast` -> `blast`
 - `Brownspot` -> `brown_spot`
-- `Hispa` or `_Hispa` -> `hispa`
 - `Tungro` -> `tungro`
 - `Healthy` -> `healthy`
+- `Healthy_Images` -> `healthy` (healthy-only import flow)
 
 ## Final training classes
 
@@ -106,3 +113,4 @@ The active export is published to `backend/cv/artifacts/current/`:
 - `brown_spot`
 - `hispa`
 - `tungro`
+ 

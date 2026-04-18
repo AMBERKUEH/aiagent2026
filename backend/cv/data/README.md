@@ -5,7 +5,10 @@ Use this folder for the Person 1 image classification pipeline.
 Primary source dataset:
 
 - `Rice Leaf Disease Images` on Kaggle
-- Source: `https://www.kaggle.com/datasets/nirmalsankalana/rice-leaf-disease-image`
+- Source: 
+    1. `https://www.kaggle.com/datasets/nirmalsankalana/rice-leaf-disease-image`
+    2. `https://www.kaggle.com/datasets/nizorogbezuode/rice-leaf-images`
+    3. `https://www.kaggle.com/datasets/rajkumar898/rice-plant-dataset`
 
 ## Expected files
 

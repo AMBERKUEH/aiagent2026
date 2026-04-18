@@ -36,6 +36,7 @@ KAGGLE_LABEL_ALIASES = {
     "healthyleaf": "healthy",
     "healthy leaf": "healthy",
     "bacterialblight": "bacterial_blight",
+    "bacterialleafblight": "bacterial_blight",
     "bacterial_blight": "bacterial_blight",
     "bacterial leaf blight": "bacterial_blight",
     "blast": "blast",
@@ -46,6 +47,8 @@ KAGGLE_LABEL_ALIASES = {
     "brown spot": "brown_spot",
     "hispa": "hispa",
     "_hispa": "hispa",
+    "ricehispa": "hispa",
+    "rice hispa": "hispa",
     "tungro": "tungro",
 }
 
@@ -54,6 +57,12 @@ HEALTHY_LABEL_ALIASES = {
     "normal",
     "healthyleaf",
     "healthy leaf",
+    "healthyimages",
+    "healthy_images",
+    "healthy images",
+    "healthyimage",
+    "healthy_image",
+    "healthy image",
 }
 HEALTHY_LABEL_ALIASES_COMPACT = {re.sub(r"[^a-z]+", "", item) for item in HEALTHY_LABEL_ALIASES}
 
@@ -199,10 +208,18 @@ def validate_dataset(csv_path: Path = ANNOTATIONS_PATH, blur_threshold: float = 
             )
 
     duplicate_groups = [paths for paths in hash_to_rows.values() if len(paths) > 1]
+    missing_required_labels = [label for label in LABELS if label_counts.get(label, 0) == 0]
+    low_count_labels = {
+        label: int(label_counts.get(label, 0))
+        for label in LABELS
+        if 0 < label_counts.get(label, 0) < 10
+    }
 
     report = {
         "total_rows": len(rows),
         "label_counts": dict(sorted(label_counts.items())),
+        "missing_required_labels": missing_required_labels,
+        "low_count_labels": low_count_labels,
         "split_counts": dict(sorted(split_counts.items())),
         "missing_files": sorted(set(missing_files)),
         "invalid_labels": invalid_labels,
@@ -211,7 +228,11 @@ def validate_dataset(csv_path: Path = ANNOTATIONS_PATH, blur_threshold: float = 
         "expert_verified_count": expert_verified,
         "required_columns": REQUIRED_COLUMNS,
         "optional_columns": OPTIONAL_COLUMNS,
-        "recommended_next_step": "Dataset is ready for split generation." if not missing_files and not invalid_labels else "Fix manifest issues before training.",
+        "recommended_next_step": (
+            "Dataset is ready for split generation."
+            if not missing_files and not invalid_labels and not missing_required_labels
+            else "Fix manifest issues before training."
+        ),
     }
 
     REPORT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -469,13 +490,20 @@ def import_healthy_images(
                 existing_rows.append({key: (value or "").strip() for key, value in row.items()})
 
     imported_rows: list[dict[str, str]] = []
+    skipped_non_healthy = 0
     for image_path in sorted(image_files):
-        parent_label = normalize_healthy_label(image_path.parent.name) or "healthy"
-        if parent_label != "healthy":
+        # Only ingest files from folders that explicitly map to healthy labels.
+        ancestor_names = [part for part in image_path.relative_to(source_dir).parts[:-1]]
+        candidate_names = [source_dir.name, *ancestor_names]
+        matched_healthy = any(normalize_healthy_label(name) == "healthy" for name in candidate_names)
+        if not matched_healthy:
+            skipped_non_healthy += 1
             continue
 
         safe_name = re.sub(r"[^a-z0-9]+", "-", image_path.stem.lower()).strip("-") or "image"
-        image_id = f"healthy-{safe_name}"
+        relative_source_key = str(image_path.relative_to(source_dir)).replace("\\", "/").lower()
+        source_hash = hashlib.sha1(relative_source_key.encode("utf-8")).hexdigest()[:10]
+        image_id = f"healthy-{safe_name}-{source_hash}"
         destination_name = f"{image_id}{image_path.suffix.lower()}"
         relative_path = Path("images") / destination_name
         destination_path = destination_images_root / destination_name
@@ -514,6 +542,7 @@ def import_healthy_images(
         "source_dir": str(source_dir),
         "annotations_path": str(annotations_path),
         "imported_healthy_images": len(imported_rows),
+        "skipped_non_healthy_images": skipped_non_healthy,
         "total_rows_after_merge": len(dedup_by_id),
         "label_counts": dict(sorted(Counter(row["label_primary"] for row in dedup_by_id.values()).items())),
     }

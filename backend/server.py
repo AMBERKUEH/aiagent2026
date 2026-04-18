@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from io import BytesIO
+from typing import Optional, Tuple, List, Dict, Any
 
 from fastapi import FastAPI
 from fastapi import File
@@ -24,21 +25,21 @@ class PredictionRequest(BaseModel):
     light_intensity: float
     soil_moisture: float
     temperature: float
-    water_level: float | None = None
-    waterLevel: float | None = None
+    water_level: Optional[float] = None
+    waterLevel: Optional[float] = None
 
 
 class CVPredictionRequest(BaseModel):
-    image_path: str | None = None
-    image_base64: str | None = None
+    image_path: Optional[str] = None
+    image_base64: Optional[str] = None
 
 
-def load_bundle() -> dict:
+def load_bundle() -> Dict[str, Any]:
     return joblib.load(MODEL_PATH)
 
 
-bundle_cache: dict | None = None
-bundle_error: Exception | None = None
+bundle_cache: Optional[Dict[str, Any]] = None
+bundle_error: Optional[Exception] = None
 
 
 def get_bundle() -> dict:
@@ -58,7 +59,7 @@ def get_bundle() -> dict:
     return bundle_cache
 
 
-def get_model_runtime() -> tuple[object, float, list[str]]:
+def get_model_runtime() -> Tuple[object, float, List[str]]:
     bundle = get_bundle()
     model = bundle["model"]
     test_r2 = float(bundle.get("test_r2", 0.4))
@@ -108,7 +109,7 @@ def predict(request: PredictionRequest) -> dict:
 
     water_level = request.water_level if request.water_level is not None else request.waterLevel
     if water_level is None:
-      raise HTTPException(status_code=422, detail="Missing water_level")
+        raise HTTPException(status_code=422, detail="Missing water_level")
 
     feature_map = {
         "humidity": request.humidity,
@@ -173,6 +174,9 @@ def cv_predict(request: CVPredictionRequest) -> dict:
         return predict_image(image)
     except ModelNotReadyError as exc:
         # Return a structured fallback so frontend scanner pages can still render a valid response.
+        from importlib import import_module
+        load_contract = import_module("backend.cv.inference").load_contract
+
         return {
             "predicted_label": "unknown",
             "confidence": 0.0,
@@ -188,7 +192,7 @@ def cv_predict(request: CVPredictionRequest) -> dict:
         raise HTTPException(status_code=500, detail=f"CV prediction failed: {exc}") from exc
 
 
-def _read_uploaded_image(image: UploadFile | None, file: UploadFile | None) -> Image.Image:
+def _read_uploaded_image(image: Optional[UploadFile], file: Optional[UploadFile]) -> Image.Image:
     selected = image or file
     if selected is None:
         raise HTTPException(status_code=422, detail="Provide either 'image' or 'file' in multipart form-data.")
@@ -204,13 +208,16 @@ def _read_uploaded_image(image: UploadFile | None, file: UploadFile | None) -> I
         raise HTTPException(status_code=422, detail=f"Unable to read uploaded image: {exc}") from exc
 
 
-def _predict_from_uploaded_image(image: UploadFile | None, file: UploadFile | None) -> dict:
+def _predict_from_uploaded_image(image: Optional[UploadFile], file: Optional[UploadFile]) -> Dict[str, Any]:
     try:
         from backend.cv.inference import ModelNotReadyError, load_contract, predict_image
 
         decoded_image = _read_uploaded_image(image=image, file=file)
         return predict_image(decoded_image)
     except ModelNotReadyError as exc:
+        from importlib import import_module
+        load_contract = import_module("backend.cv.inference").load_contract
+
         return {
             "predicted_label": "unknown",
             "confidence": 0.0,
@@ -227,15 +234,15 @@ def _predict_from_uploaded_image(image: UploadFile | None, file: UploadFile | No
 
 
 @app.post("/scan")
-def scan_image(image: UploadFile | None = File(default=None), file: UploadFile | None = File(default=None)) -> dict:
+def scan_image(image: Optional[UploadFile] = File(default=None), file: Optional[UploadFile] = File(default=None)) -> Dict[str, Any]:
     return _predict_from_uploaded_image(image=image, file=file)
 
 
 @app.post("/predict-image")
-def predict_image_alias(image: UploadFile | None = File(default=None), file: UploadFile | None = File(default=None)) -> dict:
+def predict_image_alias(image: Optional[UploadFile] = File(default=None), file: Optional[UploadFile] = File(default=None)) -> Dict[str, Any]:
     return _predict_from_uploaded_image(image=image, file=file)
 
 
 @app.post("/detect-disease")
-def detect_disease_alias(image: UploadFile | None = File(default=None), file: UploadFile | None = File(default=None)) -> dict:
+def detect_disease_alias(image: Optional[UploadFile] = File(default=None), file: Optional[UploadFile] = File(default=None)) -> Dict[str, Any]:
     return _predict_from_uploaded_image(image=image, file=file)

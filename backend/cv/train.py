@@ -56,38 +56,51 @@ def _build_datasets(tf, keras, config: TrainingConfig):
     if not train_dir.exists() or not val_dir.exists():
         raise ValueError("Train/val splits not found. Run split generation before training.")
 
-    train_ds = keras.utils.image_dataset_from_directory(
-        str(train_dir),
-        labels="inferred",
-        label_mode="int",
-        image_size=INPUT_SIZE,
-        batch_size=config.batch_size,
-        seed=config.seed,
-        shuffle=True,
-    )
-    val_ds = keras.utils.image_dataset_from_directory(
-        str(val_dir),
-        labels="inferred",
-        label_mode="int",
-        image_size=INPUT_SIZE,
-        batch_size=config.batch_size,
-        shuffle=False,
-    )
-
-    class_names = list(train_ds.class_names)
+    class_names = [label for label in LABELS if (train_dir / label).exists()]
     if sorted(class_names) != sorted(LABELS):
         raise ValueError(
             f"Detected classes {class_names}, but expected {LABELS}. Check dataset labels and import mapping before training."
         )
 
+    label_to_index = {label: index for index, label in enumerate(class_names)}
+    image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+    def collect_file_label_pairs(split_dir: Path) -> tuple[list[str], list[int]]:
+        file_paths: list[str] = []
+        labels: list[int] = []
+        for label in class_names:
+            class_dir = split_dir / label
+            if not class_dir.exists():
+                continue
+            for path in sorted(class_dir.rglob("*")):
+                if path.is_file() and path.suffix.lower() in image_extensions:
+                    file_paths.append(str(path))
+                    labels.append(label_to_index[label])
+        if not file_paths:
+            raise ValueError(f"No images found under {split_dir}.")
+        return file_paths, labels
+
+    train_files, train_labels = collect_file_label_pairs(train_dir)
+    val_files, val_labels = collect_file_label_pairs(val_dir)
+
     autotune = tf.data.AUTOTUNE
 
-    # EfficientNet models in Keras expect float inputs in the [0, 255] range.
-    def cast_float(images, labels):
-        return tf.cast(images, tf.float32), labels
+    def decode_and_resize(path, label):
+        image_bytes = tf.io.read_file(path)
+        image = tf.io.decode_image(image_bytes, channels=3, expand_animations=False)
+        image = tf.image.resize(image, INPUT_SIZE)
+        image = tf.cast(image, tf.float32)
+        return image, label
 
-    train_ds = train_ds.map(cast_float, num_parallel_calls=autotune).prefetch(autotune)
-    val_ds = val_ds.map(cast_float, num_parallel_calls=autotune).prefetch(autotune)
+    train_ds = tf.data.Dataset.from_tensor_slices((train_files, train_labels))
+    train_ds = train_ds.shuffle(len(train_files), seed=config.seed, reshuffle_each_iteration=True)
+    train_ds = train_ds.map(decode_and_resize, num_parallel_calls=autotune)
+    train_ds = train_ds.batch(config.batch_size).prefetch(autotune)
+
+    val_ds = tf.data.Dataset.from_tensor_slices((val_files, val_labels))
+    val_ds = val_ds.map(decode_and_resize, num_parallel_calls=autotune)
+    val_ds = val_ds.batch(config.batch_size).prefetch(autotune)
+
     return train_ds, val_ds, class_names
 
 
@@ -216,7 +229,11 @@ def train_pipeline(config: TrainingConfig | None = None) -> dict:
     config = config or TrainingConfig()
 
     validation_report = validate_dataset(ANNOTATIONS_PATH)
-    if validation_report["missing_files"] or validation_report["invalid_labels"]:
+    if (
+        validation_report["missing_files"]
+        or validation_report["invalid_labels"]
+        or validation_report.get("missing_required_labels")
+    ):
         raise ValueError("Dataset validation failed. Review backend/cv/reports/dataset_validation.json before training.")
 
     build_golden_set(ANNOTATIONS_PATH)

@@ -18,7 +18,11 @@ MODEL_CARD_TEMPLATE_PATH = CV_ROOT / "MODEL_CARD_TEMPLATE.md"
 MODEL_NAME = "efficientnet_b0"
 INPUT_SIZE = (224, 224)
 CONFIDENCE_THRESHOLD = 0.65
-DATASET_SOURCE = "https://www.kaggle.com/datasets/nirmalsankalana/rice-leaf-disease-image"
+DATASET_SOURCE = (
+    "https://www.kaggle.com/datasets/nirmalsankalana/rice-leaf-disease-image, "
+    "https://www.kaggle.com/datasets/nizorogbezuode/rice-leaf-images, "
+    "https://www.kaggle.com/datasets/rajkumar898/rice-plant-dataset (healthy-only)"
+)
 KAGGLE_DATASET_SLUG = "nirmalsankalana/rice-leaf-disease-image"
 KAGGLE_HEALTHY_DATASET_SLUG = "nizorogbezuode/rice-leaf-images"
 

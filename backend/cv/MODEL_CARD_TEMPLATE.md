@@ -16,12 +16,12 @@ This model is designed for the SmartPaddy rice leaf scanner MVP. It predicts the
 
 ## Label set
 
-- `healthy`
-- `bacterial_blight`
-- `blast`
-- `brown_spot`
-- `hispa`
-- `tungro`
+ - `healthy`
+ - `bacterial_blight`
+ - `blast`
+ - `brown_spot`
+ - `hispa`
+ - `tungro`
 
 ## Known limits
 

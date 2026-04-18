@@ -4,6 +4,7 @@ import base64
 import json
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -82,11 +83,63 @@ def _softmax(values: np.ndarray) -> np.ndarray:
     return exp / np.sum(exp)
 
 
-def predict_image(image: Image.Image, model_path: Path = CURRENT_MODEL_PATH, top_k: int = 3) -> dict:
+def _run_paddy_leaf_guard(image: Image.Image) -> dict[str, Any]:
+    """
+    Lightweight pre-check to block clearly non-paddy uploads.
+    This is intentionally conservative and only rejects obvious non-leaf images.
+    """
+    rgb = np.asarray(image.convert("RGB").resize(INPUT_SIZE), dtype=np.uint8)
+    if rgb.size == 0:
+        return {
+            "is_paddy_like": False,
+            "message": "Image is empty or unreadable. Please upload a clear paddy leaf photo.",
+            "metrics": {"green_ratio": 0.0, "detail_std": 0.0},
+        }
+
+    # Approximate "green vegetation" ratio.
+    r = rgb[:, :, 0].astype(np.float32)
+    g = rgb[:, :, 1].astype(np.float32)
+    b = rgb[:, :, 2].astype(np.float32)
+    strong_green = (g > r * 1.08) & (g > b * 1.08) & (g > 45)
+    green_ratio = float(np.mean(strong_green))
+
+    # Flat photos (screenshots, paper, walls) tend to have very low local variance.
+    gray = np.asarray(image.convert("L").resize(INPUT_SIZE), dtype=np.float32)
+    detail_std = float(np.std(gray))
+
+    is_paddy_like = not (green_ratio < 0.05 and detail_std < 22.0)
+    if is_paddy_like:
+        return {
+            "is_paddy_like": True,
+            "message": "",
+            "metrics": {"green_ratio": round(green_ratio, 4), "detail_std": round(detail_std, 2)},
+        }
+
+    return {
+        "is_paddy_like": False,
+        "message": "This image does not look like a paddy leaf. Please upload a paddy leaf picture.",
+        "metrics": {"green_ratio": round(green_ratio, 4), "detail_std": round(detail_std, 2)},
+    }
+
+
+def predict_image(image: Image.Image, model_path: Path = CURRENT_MODEL_PATH, top_k: int | None = None) -> dict:
     if not model_path.exists():
         raise ModelNotReadyError(
             f"Missing TFLite model at {model_path}. Train and export a model with `python -m backend.cv.cli train` first."
         )
+
+    paddy_guard = _run_paddy_leaf_guard(image)
+    if not paddy_guard["is_paddy_like"]:
+        return {
+            "predicted_label": FALLBACK_LABEL,
+            "confidence": 0.0,
+            "top_predictions": [],
+            "all_predictions": [],
+            "contract": load_contract(),
+            "status": "non_paddy_image",
+            "message": paddy_guard["message"],
+            "non_paddy_check": paddy_guard["metrics"],
+        }
 
     interpreter = _load_interpreter(model_path)
     interpreter.allocate_tensors()
@@ -116,7 +169,10 @@ def predict_image(image: Image.Image, model_path: Path = CURRENT_MODEL_PATH, top
     ]
     label_scores.sort(key=lambda item: item["confidence"], reverse=True)
 
-    top_predictions = label_scores[:top_k]
+    if top_k is None or top_k <= 0:
+        top_predictions = label_scores
+    else:
+        top_predictions = label_scores[:top_k]
     best_prediction = top_predictions[0] if top_predictions else {"label": FALLBACK_LABEL, "confidence": 0.0}
     predicted_label = best_prediction["label"]
     if best_prediction["confidence"] < load_contract()["confidence_threshold"]:
@@ -126,7 +182,9 @@ def predict_image(image: Image.Image, model_path: Path = CURRENT_MODEL_PATH, top
         "predicted_label": predicted_label,
         "confidence": round(best_prediction["confidence"], 4),
         "top_predictions": top_predictions,
+        "all_predictions": label_scores,
         "contract": load_contract(),
+        "status": "ok",
     }
 
 

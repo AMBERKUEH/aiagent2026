@@ -52,11 +52,6 @@ const labelChecklistMap: Record<string, string[]> = {
     "Review potassium and overall nutrient balance because deficiencies can worsen brown spot pressure.",
     "Track whether the lesion count increases over the next 7 to 10 days.",
   ],
-  hispa: [
-    "Check for scraping damage or windowing on neighboring leaves because insect pressure can spread quickly.",
-    "Inspect the underside of leaves for insects or eggs before deciding on control action.",
-    "Record the affected area and revisit it soon to confirm whether feeding damage is increasing.",
-  ],
   tungro: [
     "Inspect nearby plants for stunting and yellow-orange discoloration that can indicate wider tungro spread.",
     "Review vector pressure in the field and watch for leafhopper activity during the next scouting pass.",
@@ -64,6 +59,13 @@ const labelChecklistMap: Record<string, string[]> = {
   ],
   unclassified: defaultChecklist,
 };
+const supportedLabels = [
+  "healthy",
+  "bacterial_blight",
+  "blast",
+  "brown_spot",
+  "tungro",
+];
 
 const emptyResult: ScanResult = {
   diseaseName: "Awaiting scan",
@@ -234,6 +236,35 @@ const normalizeScanResponse = (payload: unknown, fileName: string): ScanResult =
       ],
       possibleRisks: [],
       modelName: pickString(contract ?? {}, ["model_name"], "CV model"),
+      inferenceTime: "--",
+    };
+  }
+  if (status === "non_paddy_image") {
+    const statusMessage = pickString(
+      source,
+      ["message", "detail"],
+      "This image does not appear to be a paddy leaf. Please upload a paddy leaf picture."
+    );
+    return {
+      ...emptyResult,
+      diseaseName: "Non-paddy image",
+      confidence: 0,
+      summary: statusMessage,
+      backendStatus: status,
+      backendMessage: statusMessage,
+      severity: "Input issue",
+      spreadRisk: "N/A",
+      priority: "Upload Paddy Photo",
+      impact: "No crop diagnosis was run because the uploaded image failed the paddy-leaf pre-check.",
+      recommendation:
+        "Upload a close, clear photo of a single paddy leaf in natural lighting. Keep the leaf centered and avoid background objects.",
+      checklist: [
+        "Use a real paddy leaf image (not screenshot, chart, or non-plant photo).",
+        "Fill most of the frame with the leaf.",
+        "Retake in good daylight and avoid blur.",
+      ],
+      possibleRisks: [],
+      modelName: "Backend detector",
       inferenceTime: "--",
     };
   }
@@ -686,6 +717,16 @@ const ScannerPage = () => {
                 </div>
               ))}
             </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {supportedLabels.map((label) => (
+              <span
+                key={label}
+                className="rounded-full bg-surface-container-low px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant"
+              >
+                {toTitleCase(label)}
+              </span>
+            ))}
           </div>
         </section>
 
