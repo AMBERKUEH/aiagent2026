@@ -78,7 +78,7 @@ const emptyResult: ScanResult = {
   priority: "Ready When You Are",
   impact: "No analysis has been run yet",
   recommendation: "Once an image is submitted, SmartPaddy will display the detected class, confidence score, and the backend recommendation here.",
-  checklist: defaultChecklist,
+  checklist: [],
   possibleRisks: [],
   modelName: "Backend detector",
   inferenceTime: "--",
@@ -155,7 +155,7 @@ const buildFallbackSummary = (
     .filter((value): value is string => Boolean(value))
     .map(toTitleCase);
   const confidenceText = confidence > 0 ? ` at ${confidence}% confidence` : "";
-  const alternativesText = secondary.length > 0 ? ` Other likely classes: ${secondary.join(", ")}.` : "";
+  const alternativesText = secondary.length > 0 ? "" : "";
 
   return `The backend analyzed ${fileName} and returned ${toTitleCase(rawDiseaseName)}${confidenceText}.${alternativesText}`;
 };
@@ -367,7 +367,7 @@ const enrichScanResultWithGroq = async (
       model: "llama-3.3-70b-versatile",
       temperature: 0.2,
       max_tokens: 400,
-          messages: [
+      messages: [
         {
           role: "system",
           content:
@@ -481,24 +481,24 @@ const ScannerPage = () => {
         const startedAt = performance.now();
         const response = endpoint === "/api/cv/predict"
           ? await fetch(endpoint, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                image_base64: base64Image,
-              }),
-            })
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              image_base64: base64Image,
+            }),
+          })
           : await fetch(endpoint, {
-              method: "POST",
-              body: (() => {
-                const formData = new FormData();
-                formData.append("image", file);
-                formData.append("file", file);
-                formData.append("filename", file.name);
-                return formData;
-              })(),
-            });
+            method: "POST",
+            body: (() => {
+              const formData = new FormData();
+              formData.append("image", file);
+              formData.append("file", file);
+              formData.append("filename", file.name);
+              return formData;
+            })(),
+          });
 
         if (!response.ok) {
           let detail = "";
@@ -695,6 +695,92 @@ const ScannerPage = () => {
     [analysisResult.inferenceTime, analysisResult.modelName, isAnalyzing]
   );
 
+  const isHealthy = analysisResult.diseaseName.toLowerCase() === "healthy";
+  const visibleRisks = analysisResult.possibleRisks.filter(
+    (risk) => risk.confidence !== 0 && risk.confidence !== null && risk.label.toLowerCase() !== analysisResult.diseaseName.toLowerCase()
+  );
+
+  const finalRecommendation = isHealthy
+    ? "No diseases, pests, or nutrient deficiencies detected. Your field is showing optimal vigor. Chlorophyll levels appear normal based on visual spectrum analysis."
+    : analysisResult.recommendation;
+
+  const finalChecklist = isHealthy
+    ? [
+      "Maintain current irrigation and fertilization schedules.",
+      "No corrective intervention required at this time.",
+      "Next routine scan recommended in 7 days."
+    ]
+    : analysisResult.checklist;
+
+  const cStyle = (() => {
+    const isWaiting = analysisResult.diseaseName === "Awaiting scan";
+    const severityLower = analysisResult.severity.toLowerCase();
+    const isMedium = !isHealthy && !isWaiting && (severityLower.includes("medium") || severityLower.includes("moderate"));
+    const isHigh = !isHealthy && !isWaiting && (severityLower.includes("high") || severityLower.includes("severe") || severityLower.includes("critical"));
+
+    if (isWaiting) {
+      return {
+        bg: "from-gray-100 to-gray-200",
+        text: "text-gray-900",
+        textMuted: "text-gray-600",
+        textLabel: "text-gray-500",
+        bgBox: "bg-black/5",
+        bgIcon: "bg-black/10",
+        bgSeverity: "bg-white/50 p-4",
+        bgChecklist: "bg-white/50 px-4 py-3",
+        border: "border-black/10",
+        iconColor: "text-gray-600",
+        iconName: "analytics",
+      };
+    }
+
+    if (isHigh) {
+      return {
+        bg: "from-red-700 to-[#991b1b]",
+        text: "text-white",
+        textMuted: "text-white/80",
+        textLabel: "text-white/60",
+        bgBox: "bg-white/10",
+        bgIcon: "bg-white/20",
+        bgSeverity: "bg-transparent p-0",
+        bgChecklist: "bg-transparent px-0 py-2",
+        border: "border-white/10",
+        iconColor: "text-white",
+        iconName: "warning",
+      };
+    }
+
+    if (isMedium) {
+      return {
+        bg: "from-amber-600 to-amber-800",
+        text: "text-white",
+        textMuted: "text-white/90",
+        textLabel: "text-white/70",
+        bgBox: "bg-white/10",
+        bgIcon: "bg-white/20",
+        bgSeverity: "bg-transparent p-0",
+        bgChecklist: "bg-transparent px-0 py-2",
+        border: "border-white/20",
+        iconColor: "text-white",
+        iconName: "warning",
+      };
+    }
+    
+    return {
+      bg: "from-primary to-[#004d36]",
+      text: "text-primary-foreground",
+      textMuted: "text-white/70",
+      textLabel: "text-white/45",
+      bgBox: "bg-white/8",
+      bgIcon: "bg-white/10",
+      bgSeverity: "bg-white/8 p-4",
+      bgChecklist: "bg-white/8 px-4 py-3",
+      border: "border-white/10",
+      iconColor: "text-[#4edea3]",
+      iconName: "check_circle",
+    };
+  })();
+
   return (
     <AppLayout>
       <div className="mx-auto max-w-6xl space-y-6">
@@ -718,16 +804,7 @@ const ScannerPage = () => {
               ))}
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {supportedLabels.map((label) => (
-              <span
-                key={label}
-                className="rounded-full bg-surface-container-low px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant"
-              >
-                {toTitleCase(label)}
-              </span>
-            ))}
-          </div>
+
         </section>
 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.8fr)] lg:items-start">
@@ -752,9 +829,8 @@ const ScannerPage = () => {
                 <img
                   src={displayedScannerImage}
                   alt="Paddy leaf scanner"
-                  className={`h-[340px] w-full sm:h-[420px] ${
-                    isShowingUploadedImage ? "object-contain bg-black/25 p-4 opacity-100" : "object-cover opacity-85"
-                  }`}
+                  className={`h-[340px] w-full sm:h-[420px] ${isShowingUploadedImage ? "object-contain bg-black/25 p-4 opacity-100" : "object-cover opacity-85"
+                    }`}
                 />
               )}
 
@@ -834,13 +910,19 @@ const ScannerPage = () => {
             </div>
           </section>
 
-          <section className="space-y-6">
-            <div className="rounded-[2.25rem] bg-surface-container-lowest p-8 text-center shadow-[0_8px_32px_rgba(25,28,29,0.04)]">
+          <section className="h-[340px] sm:h-[420px]">
+            <div className="flex h-full flex-col items-center justify-center rounded-[2.25rem] bg-surface-container-lowest p-6 text-center shadow-[0_8px_32px_rgba(25,28,29,0.04)] sm:p-8">
               <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-outline/80">
                 Confidence Score
               </p>
-              <div className="relative mx-auto mt-8 flex h-52 w-52 items-center justify-center">
+              <div className="relative mx-auto mt-5 flex h-44 w-44 items-center justify-center sm:mt-8 sm:h-52 sm:w-52">
                 <svg className="h-full w-full -rotate-90" viewBox="0 0 176 176" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="confidence-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="hsl(var(--primary))" />
+                      <stop offset="100%" stopColor="#4edea3" />
+                    </linearGradient>
+                  </defs>
                   <circle
                     cx="88"
                     cy="88"
@@ -854,7 +936,7 @@ const ScannerPage = () => {
                     cy="88"
                     r="80"
                     fill="none"
-                    stroke="hsl(var(--primary))"
+                    stroke="url(#confidence-gradient)"
                     strokeWidth="6"
                     strokeLinecap="round"
                     strokeDasharray={confidenceCircumference}
@@ -862,13 +944,13 @@ const ScannerPage = () => {
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="font-headline text-6xl font-light text-primary">
+                  <span className="bg-gradient-to-br from-primary to-[#4edea3] bg-clip-text font-headline text-5xl font-light text-transparent sm:text-6xl">
                     {analysisResult.confidence}
-                    <span className="text-3xl text-outline/70">%</span>
+                    <span className="text-2xl text-outline/70 sm:text-3xl" style={{ WebkitTextFillColor: "hsl(var(--outline) / 0.7)" }}>%</span>
                   </span>
                 </div>
               </div>
-              <p className="mt-8 text-xs font-semibold uppercase tracking-[0.22em] text-outline/70">
+              <p className="mt-5 text-[10px] font-semibold uppercase tracking-[0.22em] text-outline/70 sm:mt-8 sm:text-xs">
                 {isWaitingForImage ? "Ready for backend scan" : isAnalyzing ? "Backend inference in progress" : analysisResult.diseaseName}
               </p>
               {analysisError && <p className="mt-4 text-sm text-red-600">{analysisError}</p>}
@@ -876,31 +958,33 @@ const ScannerPage = () => {
           </section>
         </div>
 
-        <section className="rounded-[2.25rem] bg-primary p-8 text-primary-foreground shadow-[0_16px_40px_rgba(0,53,39,0.16)] sm:p-10">
+        <section className={`relative rounded-[2.25rem] bg-gradient-to-br ${cStyle.bg} p-8 ${cStyle.text} shadow-[0_16px_40px_rgba(0,53,39,0.16)] sm:p-10 transition-colors duration-500`}>
           <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-xl">
               <div className="mb-6 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10">
-                  <span className="material-symbols-outlined text-2xl text-[#4edea3]">coronavirus</span>
+                <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${cStyle.bgIcon}`}>
+                  <span className={`material-symbols-outlined text-2xl ${cStyle.iconColor}`}>{cStyle.iconName}</span>
                 </div>
                 <h2 className="font-headline text-xl font-bold tracking-[0.02em]">Detection Result</h2>
               </div>
 
               <div className="space-y-3">
                 <p className="text-2xl font-semibold leading-tight sm:text-3xl">{analysisResult.diseaseName}</p>
-                <p className="flex items-center gap-2 text-sm text-white/65">
-                  <span className="material-symbols-outlined text-base">warning</span>
-                  Impact: {analysisResult.impact}
-                </p>
-                {analysisResult.possibleRisks.length > 0 && (
+                {!isHealthy && (
+                  <p className={`flex items-center gap-2 text-sm ${cStyle.textMuted}`}>
+                    <span className="material-symbols-outlined text-base">warning</span>
+                    Impact: {analysisResult.impact}
+                  </p>
+                )}
+                {!isHealthy && visibleRisks.length > 0 && (
                   <div className="pt-1">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">Possible Risks</p>
+                    <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${cStyle.textLabel}`}>Other Possible Risks</p>
                     <div className="mt-3 flex flex-row gap-2">
-                      {analysisResult.possibleRisks.map((risk) => (
-                        <div key={`${risk.label}-${risk.confidence ?? "na"}`} className="rounded-xl bg-white/10 px-3 py-3">
-                          <p className="text-sm font-semibold text-white">{risk.label}</p>
-                          <p className="mt-1 text-xs text-white/70">
-                            {risk.confidence !== null ? `${risk.confidence}% confidence` : "Confidence not provided"}
+                      {visibleRisks.map((risk) => (
+                        <div key={`${risk.label}-${risk.confidence}`} className={`rounded-xl ${cStyle.bgBox} px-3 py-3`}>
+                          <p className={`text-sm font-semibold ${cStyle.text}`}>{risk.label}</p>
+                          <p className={`mt-1 text-xs ${cStyle.textMuted}`}>
+                            {risk.confidence}% confidence
                           </p>
                         </div>
                       ))}
@@ -908,56 +992,60 @@ const ScannerPage = () => {
                   </div>
                 )}
                 {analysisResult.backendMessage && analysisResult.backendMessage !== analysisResult.summary && (
-                  <p className="max-w-lg text-xs leading-6 text-white/65">{analysisResult.backendMessage}</p>
+                  <p className={`max-w-lg text-xs leading-6 ${cStyle.textMuted}`}>{analysisResult.backendMessage}</p>
                 )}
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[360px]">
-              <div className="rounded-2xl bg-white/8 p-4">
-                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">Severity</p>
-                <p className="mt-2 text-lg font-semibold text-white">{analysisResult.severity}</p>
+            {!isHealthy && (
+              <div className="grid gap-3 sm:grid-cols-3 lg:min-w-[360px]">
+                <div className={`rounded-2xl ${cStyle.bgSeverity}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${cStyle.textLabel}`}>Severity</p>
+                  <p className={`mt-2 text-lg font-semibold ${cStyle.text}`}>{analysisResult.severity}</p>
+                </div>
+                <div className={`rounded-2xl ${cStyle.bgSeverity}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${cStyle.textLabel}`}>Spread Risk</p>
+                  <p className={`mt-2 text-lg font-semibold ${cStyle.text}`}>{analysisResult.spreadRisk}</p>
+                </div>
+                <div className={`rounded-2xl ${cStyle.bgSeverity}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${cStyle.textLabel}`}>Priority</p>
+                  <p className={`mt-2 text-lg font-semibold ${cStyle.text}`}>{analysisResult.priority}</p>
+                </div>
               </div>
-              <div className="rounded-2xl bg-white/8 p-4">
-                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">Spread Risk</p>
-                <p className="mt-2 text-lg font-semibold text-white">{analysisResult.spreadRisk}</p>
-              </div>
-              <div className="rounded-2xl bg-white/8 p-4">
-                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">Priority</p>
-                <p className="mt-2 text-lg font-semibold text-white">{analysisResult.priority}</p>
-              </div>
-            </div>
+            )}
           </div>
 
-          <div className="mt-8 grid gap-6 border-t border-white/10 pt-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <div className={`mt-8 grid gap-6 border-t ${cStyle.border} pt-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]`}>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
+              <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${cStyle.textLabel}`}>
                 Recommended Action
               </p>
-              <p className="mt-3 text-sm leading-7 text-white/80">{analysisResult.recommendation}</p>
+              <p className={`mt-3 text-sm leading-7 text-justify ${cStyle.textMuted}`}>{finalRecommendation}</p>
             </div>
 
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
+              <p className={`text-[10px] font-bold uppercase tracking-[0.22em] ${cStyle.textLabel}`}>
                 Field Checklist
               </p>
               <div className="mt-4 space-y-3">
-                {analysisResult.checklist.length > 0 ? (
-                  analysisResult.checklist.map((item) => (
-                    <div key={item} className="flex gap-3 rounded-2xl bg-white/8 px-4 py-3">
-                      <span className="material-symbols-outlined mt-0.5 text-[#4edea3]">check_circle</span>
-                      <p className="text-sm leading-6 text-white/80">{item}</p>
+                {finalChecklist.length > 0 ? (
+                  finalChecklist.map((item) => (
+                    <div key={item} className={`flex gap-3 rounded-2xl ${cStyle.bgChecklist}`}>
+                      <span className={`material-symbols-outlined mt-0.5 ${cStyle.iconColor}`}>check_circle</span>
+                      <p className={`text-sm leading-6 ${cStyle.textMuted}`}>{item}</p>
                     </div>
                   ))
                 ) : (
-                  <div className="flex gap-3 rounded-2xl bg-white/8 px-4 py-3">
-                    <span className="material-symbols-outlined mt-0.5 text-[#4edea3]">info</span>
-                    <p className="text-sm leading-6 text-white/80">No checklist returned by backend.</p>
+                  <div className={`flex gap-3 rounded-2xl ${cStyle.bgChecklist}`}>
+                    <span className={`material-symbols-outlined mt-0.5 ${cStyle.iconColor}`}>info</span>
+                    <p className={`text-sm leading-6 ${cStyle.textMuted}`}>No checklist available. Submit a leaf image to generate field recommendations.</p>
                   </div>
                 )}
               </div>
             </div>
           </div>
+
+
         </section>
       </div>
     </AppLayout>
