@@ -35,17 +35,16 @@ venv/
 __pycache__/
 **/__pycache__/
 *.py[cod]
-backend/cv/artifacts/current/model.tflite
-backend/cv/artifacts/current/labels.txt
-backend/cv/artifacts/current/contract.json
-backend/cv/artifacts/current/MODEL_CARD.md
-backend/cv/artifacts/run_*/
-backend/cv/reports/*.json
+# CV Dataset and Artifacts
+backend/cv/artifacts/
+!backend/cv/artifacts/current/README.md
+backend/cv/reports/
 backend/cv/data/annotations.csv
 backend/cv/data/generated/
-backend/cv/data/images/*
+backend/cv/data/images/
+backend/cv/data/inference_samples/
+backend/cv/data/healthy_samples/
+# Keep gitkeeps so folders exist in git
 !backend/cv/data/images/.gitkeep
-backend/cv/data/inference_samples/*
 !backend/cv/data/inference_samples/.gitkeep
-backend/cv/data/healthy_samples/*
 !backend/cv/data/healthy_samples/.gitkeep
