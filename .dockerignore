@@ -1,0 +1,58 @@
+# Node
+node_modules/
+dist/
+npm-debug.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*,cover
+.hypothesis/
+.pytest_cache/
+
+# Data and Models (Avoid uploading large datasets to build context)
+backend/cv/data/
+backend/cv/models/checkpoint/
+# Keep only the production models/artifacts
+!backend/crop_yield_model.pkl
+!backend/cv/artifacts/
+!backend/cv/artifacts/current/
+!backend/cv/artifacts/current/model.tflite
+!backend/cv/artifacts/current/labels.txt
+!backend/cv/artifacts/current/contract.json
+
+# Git
+.git/
+.gitignore
+
+# Env (Allowing temporarily for build-time injection)
+# .env and .env.local removed from ignore to allow Vite to bake them in
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Misc
+.DS_Store
+thumbs.db
+.vscode/
+.idea/
+README.md
+docs/
+documents/
+scripts/
+tests/
+playwright.config.ts

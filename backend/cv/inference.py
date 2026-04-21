@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import base64
 import json
 from io import BytesIO
@@ -26,18 +24,15 @@ class ModelNotReadyError(RuntimeError):
 
 def _load_interpreter(model_path: Path):  # pylint: disable=import-outside-toplevel
     try:
-        import tensorflow as tf  # pylint: disable=import-outside-toplevel
-
-        return tf.lite.Interpreter(model_path=str(model_path))
+        from tflite_runtime.interpreter import Interpreter  # type: ignore[import-untyped]  # noqa: PLC0415  # pylint: disable=import-outside-toplevel,import-error
+        return Interpreter(model_path=str(model_path))
     except Exception:
         try:
-            from tflite_runtime.interpreter import Interpreter  # type: ignore[import-untyped]  # noqa: PLC0415  # pylint: disable=import-outside-toplevel,import-error
-
-            return Interpreter(model_path=str(model_path))
+            import tensorflow as tf  # pylint: disable=import-outside-toplevel
+            return tf.lite.Interpreter(model_path=str(model_path))
         except Exception as exc:
             raise RuntimeError(
-                "Unable to load TFLite interpreter. Install compatible TensorFlow in this environment "
-                "or install tflite-runtime."
+                "Unable to load TFLite interpreter. Install tflite-runtime or tensorflow."
             ) from exc
 
 
@@ -190,12 +185,39 @@ def predict_image(image: Image.Image, model_path: Path = CURRENT_MODEL_PATH, top
 
 def load_image_from_request(image_path: str | None = None, image_base64: str | None = None) -> Image.Image:
     if image_base64:
-        payload = image_base64.split(",", 1)[-1]
-        image_bytes = base64.b64decode(payload)
-        return Image.open(BytesIO(image_bytes))
+        # Strip data URL prefix (e.g. "data:image/jpeg;base64,")
+        if "," in image_base64:
+            payload = image_base64.split(",", 1)[1]
+        else:
+            payload = image_base64
+        # Strip any whitespace/newlines that could corrupt decoding
+        payload = payload.strip().replace(" ", "+")
+        # Fix padding
+        missing_padding = len(payload) % 4
+        if missing_padding:
+            payload += "=" * (4 - missing_padding)
+        try:
+            image_bytes = base64.b64decode(payload)
+        except Exception as exc:
+            raise ValueError(f"Invalid base64 image data: {exc}") from exc
+        if len(image_bytes) < 8:
+            raise ValueError(f"Decoded image is too small ({len(image_bytes)} bytes) — likely an encoding error.")
+        buf = BytesIO(image_bytes)
+        buf.seek(0)
+        try:
+            img = Image.open(buf)
+            img.load()
+        except Exception as exc:
+            # Try re-seek in case of any stream issue
+            buf.seek(0)
+            img = Image.open(buf)
+            img.load()
+        return img.convert("RGB")
 
     if image_path:
         path = Path(image_path)
-        return Image.open(path)
+        img = Image.open(path)
+        img.load()
+        return img.convert("RGB")
 
     raise ValueError("Provide either image_path or image_base64.")

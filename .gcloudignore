@@ -1,0 +1,14 @@
+# This file ignores everything in .gitignore EXCEPT for .env files
+# so they can be used for build-time environment variable injection.
+
+.git
+.gitignore
+
+# Explicitly UN-IGNORE .env and .env.local
+!.env
+!.env.local
+
+# Still ignore other sensitive stuff
+node_modules/
+dist/
+backend/cv/data/

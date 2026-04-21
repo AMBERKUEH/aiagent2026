@@ -3,15 +3,15 @@ import sys
 from io import BytesIO
 from typing import Optional, Tuple, List, Dict, Any
 
-from fastapi import FastAPI
-from fastapi import File
-from fastapi import HTTPException
-from fastapi import UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 import joblib
 import pandas as pd
 from PIL import Image
 from pydantic import BaseModel
+import os
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -72,14 +72,18 @@ def get_model_runtime() -> Tuple[object, float, List[str]]:
 app = FastAPI(title="Smart Paddy Prediction API")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Router that handles both /route and /api/route so it works
+# in local dev (Vite proxy strips /api) AND in production (no proxy).
+router = APIRouter()
 
-@app.get("/health")
+
+@router.get("/health")
 def healthcheck() -> dict:
     try:
         _, test_r2, feature_names = get_model_runtime()
@@ -100,7 +104,7 @@ def healthcheck() -> dict:
     }
 
 
-@app.post("/predict")
+@router.post("/predict")
 def predict(request: PredictionRequest) -> dict:
     try:
         model, test_r2, feature_names = get_model_runtime()
@@ -126,14 +130,15 @@ def predict(request: PredictionRequest) -> dict:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
 
     return {
-        "prediction": prediction,
+        "prediction": round(abs(prediction), 2),
+        "raw_prediction": round(prediction, 4),
         "confidence": confidence,
         "test_r2": test_r2,
         "features": feature_map,
     }
 
 
-@app.get("/cv/health")
+@router.get("/cv/health")
 def cv_healthcheck() -> dict:
     from backend.cv.config import CURRENT_CONTRACT_PATH, CURRENT_MODEL_PATH, MODEL_NAME
 
@@ -145,7 +150,7 @@ def cv_healthcheck() -> dict:
     }
 
 
-@app.get("/cv/spec")
+@router.get("/cv/spec")
 def cv_spec() -> dict:
     from backend.cv.config import CONFIDENCE_THRESHOLD, DATASET_SOURCE, FALLBACK_LABEL, INPUT_SIZE, LABELS, MODEL_NAME
 
@@ -160,7 +165,7 @@ def cv_spec() -> dict:
     }
 
 
-@app.post("/cv/predict")
+@router.post("/cv/predict")
 def cv_predict(request: CVPredictionRequest) -> dict:
     try:
         from backend.cv.inference import (
@@ -198,10 +203,17 @@ def _read_uploaded_image(image: Optional[UploadFile], file: Optional[UploadFile]
         raise HTTPException(status_code=422, detail="Provide either 'image' or 'file' in multipart form-data.")
 
     try:
+        # Seek to start in case stream was partially consumed
+        if hasattr(selected.file, "seek"):
+            selected.file.seek(0)
         content = selected.file.read()
         if not content:
             raise HTTPException(status_code=422, detail="Uploaded file is empty.")
-        return Image.open(BytesIO(content))
+        buf = BytesIO(content)
+        buf.seek(0)
+        img = Image.open(buf)
+        img.load()  # Force full decode to catch truncated files early
+        return img.convert("RGB")  # Normalize to RGB (handles PNG, WebP, HEIC etc.)
     except HTTPException:
         raise
     except Exception as exc:
@@ -233,16 +245,36 @@ def _predict_from_uploaded_image(image: Optional[UploadFile], file: Optional[Upl
         raise HTTPException(status_code=500, detail=f"CV prediction failed: {exc}") from exc
 
 
-@app.post("/scan")
+@router.post("/scan")
 def scan_image(image: Optional[UploadFile] = File(default=None), file: Optional[UploadFile] = File(default=None)) -> Dict[str, Any]:
     return _predict_from_uploaded_image(image=image, file=file)
 
 
-@app.post("/predict-image")
+@router.post("/predict-image")
 def predict_image_alias(image: Optional[UploadFile] = File(default=None), file: Optional[UploadFile] = File(default=None)) -> Dict[str, Any]:
     return _predict_from_uploaded_image(image=image, file=file)
 
 
-@app.post("/detect-disease")
+@router.post("/detect-disease")
 def detect_disease_alias(image: Optional[UploadFile] = File(default=None), file: Optional[UploadFile] = File(default=None)) -> Dict[str, Any]:
     return _predict_from_uploaded_image(image=image, file=file)
+
+
+# Mount router at both / (for local dev, Vite proxy strips /api)
+# and /api (for production, no proxy)
+app.include_router(router)
+app.include_router(router, prefix="/api")
+
+# Serve frontend static files
+dist_path = ROOT_DIR / "dist"
+if dist_path.exists():
+    app.mount("/assets", StaticFiles(directory=str(dist_path / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # API routes are already handled above. 
+        # For anything else, if it's not an asset, serve index.html
+        index_file = dist_path / "index.html"
+        if index_file.exists():
+            return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
+        return HTTPException(status_code=404, detail="Frontend not built")

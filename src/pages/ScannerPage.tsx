@@ -415,7 +415,7 @@ const enrichScanResultWithGroq = async (
   };
 };
 
-const endpointCandidates = ["/api/cv/predict", "/api/scan", "/api/predict-image", "/api/detect-disease"];
+const endpointCandidates = ["/api/cv/predict"];
 
 const ScannerPage = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
