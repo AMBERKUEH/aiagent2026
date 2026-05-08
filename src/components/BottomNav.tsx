@@ -1,11 +1,10 @@
 import { useNavigate, useLocation } from "react-router-dom";
 
 const navItems = [
-  { icon: "dashboard", label: "Dashboard", path: "/" },
-  { icon: "query_stats", label: "Prediction", path: "/prediction" },
+  { icon: "neurology", label: "Command", path: "/" },
+  { icon: "account_tree", label: "Scenarios", path: "/scenarios" },
   { icon: "smart_toy", label: "AI", path: "/chat" },
   { icon: "center_focus_strong", label: "Scanner", path: "/scanner" },
-  { icon: "storefront", label: "Market", path: "/market" },
   { icon: "map", label: "Map", path: "/map" },
 ];
 

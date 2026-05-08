@@ -1,10 +1,11 @@
-﻿import AppLayout from "@/components/AppLayout";
+import AppLayout from "@/components/AppLayout";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { rtdb } from "@/lib/firebase";
 import { normalizeSensorPayload } from "@/lib/sensors";
 import { searchAgricultureDocs } from "@/lib/supabase";
 import { ref, onValue } from "firebase/database";
 import ReactMarkdown from "react-markdown";
+import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 
 type Lang = "BM" | "EN";
 type DocumentLanguage = "bm" | "en";
@@ -25,13 +26,13 @@ interface ChatMessage {
 }
 
 const SYSTEM_PROMPT: Record<Lang, string> = {
-  BM: "You are SmartPaddy, an AI farming assistant for Malaysian B40 paddy farmers. Always respond in Bahasa Malaysia. Keep answers short, practical, and simple - these are farmers with low tech literacy. Do not use jargon. You will receive current farm sensor readings and relevant agricultural knowledge to help personalise your answers. Only answer questions about paddy farming, fertiliser prices, irrigation, crop health, and Malaysian agriculture. If asked about anything else, politely redirect to farming topics in Bahasa Malaysia. End every response with one clear action the farmer should take today.",
-  EN: "You are SmartPaddy, an AI farming assistant for Malaysian paddy farmers. Always respond in English. Keep answers short, practical, and easy to understand. You will receive current farm sensor readings and relevant agricultural knowledge to help personalise your answers. Only answer questions about paddy farming, fertiliser prices, irrigation, crop health, and Malaysian agriculture. If asked about anything else, politely redirect to farming topics. End every response with one clear recommended action.",
+  BM: "You are SmartPaddy, an AI farming advisory agent for Malaysian B40 paddy farmers. Always respond in Bahasa Malaysia. Keep answers short, practical, and simple. You will receive: (1) live sensor readings, (2) agent findings from our multi-agent system (weather, crop health, yield, market agents), (3) the current recommended strategy and scenario comparison. Use ALL of this context to give highly specific, actionable advice. When farmers ask 'why', explain the reasoning chain from our agents. Only answer about paddy farming and Malaysian agriculture. End every response with one clear action.",
+  EN: "You are SmartPaddy, an AI farming advisory agent for Malaysian paddy farmers. Always respond in English. Keep answers short, practical, and actionable. You will receive: (1) live sensor readings, (2) agent findings from our multi-agent system (weather, crop health, yield, market agents), (3) the current recommended strategy and scenario comparison. Use ALL of this context to give highly specific, data-driven advice. When farmers ask 'why', trace the reasoning back through agent findings. Only answer about paddy farming and Malaysian agriculture. End every response with one clear recommended action.",
 };
 
 const QUICK_REPLIES: Record<Lang, string[]> = {
-  BM: ["Bila nak siram padi?", "Kenapa padi saya kuning?", "Harga baja urea?"],
-  EN: ["When should I irrigate?", "Why are my leaves yellow?", "What is urea price?"],
+  BM: ["Kenapa strategi ini disyorkan?", "Bila nak siram padi?", "Apakah risiko banjir sekarang?", "Harga baja urea?"],
+  EN: ["Why is this strategy recommended?", "When should I irrigate?", "What is the current flood risk?", "Explain the yield forecast"],
 };
 
 const PLACEHOLDERS: Record<Lang, string> = {
@@ -155,6 +156,7 @@ async function callGroq(
 }
 
 const ChatPage = () => {
+  const { ctx: farmCtx } = useFarmContext();
   const [lang, setLang] = useState<Lang>("BM");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -212,12 +214,45 @@ const ChatPage = () => {
       setInput("");
       setIsTyping(true);
 
-      // Build the prompt from live sensors plus retrieved agriculture guidance.
+      // Build the prompt from live sensors, agent findings, and retrieved agriculture guidance.
       const sensorLine = `[SENSOR DATA: soil_moisture=${soilMoisture ?? "N/A"}%, temperature=${temp ?? "N/A"}°C, light=${lightLux ?? "N/A"} lux]`;
       const ragContext = await fetchRagContext(text, lang);
       const ragLine = ragContext ? `[AGRICULTURAL KNOWLEDGE:\n${ragContext}]` : "";
       const languageLine = `[RESPONSE LANGUAGE: ${getResponseLanguageLabel(lang)}. Reply only in ${getResponseLanguageLabel(lang)}.]`;
-      const fullUserMessage = `${languageLine}\n\n${sensorLine}\n\n${ragLine}\n\nFarmer's question: ${text.trim()}`;
+
+      // Inject FarmContext intelligence
+      const agentLines: string[] = [];
+      if (farmCtx.findings.length > 0) {
+        const topFindings = farmCtx.findings.filter(f => f.severity !== "positive").slice(0, 5);
+        if (topFindings.length > 0) {
+          agentLines.push("[AGENT FINDINGS:");
+          for (const f of topFindings) {
+            agentLines.push(`- ${f.agentName} (${f.confidence}%): ${f.finding}. ${f.detail}`);
+          }
+          agentLines.push("]");
+        }
+      }
+      if (farmCtx.recommendation) {
+        agentLines.push(`[RECOMMENDED STRATEGY: ${farmCtx.recommendation.strategyName}. ${farmCtx.recommendation.summary}]`);
+      }
+      if (farmCtx.riskProfile) {
+        const rp = farmCtx.riskProfile;
+        agentLines.push(`[RISK PROFILE: Overall=${rp.overallRisk}%, Flood=${rp.floodRisk}%, Drought=${rp.droughtRisk}%, Disease=${rp.diseaseRisk}%, Market=${rp.marketRisk}%, Trend=${rp.riskTrend}]`);
+      }
+      if (farmCtx.yieldEstimate) {
+        const ye = farmCtx.yieldEstimate;
+        agentLines.push(`[YIELD ESTIMATE: ${ye.adjustedPrediction} t/ha (range: ${ye.confidenceBand.low}-${ye.confidenceBand.high}), model confidence: ${ye.modelConfidence}%]`);
+      }
+      if (farmCtx.scenarioTree && farmCtx.scenarioTree.scenarios.length > 0) {
+        agentLines.push("[SCENARIO COMPARISON:");
+        for (const s of farmCtx.scenarioTree.scenarios) {
+          agentLines.push(`- ${s.name}${s.isRecommended ? " (RECOMMENDED)" : ""}: yield=${s.projections.yieldTonPerHa.mid}t/ha, profit=RM${s.projections.profitRM.mid}, risk=${s.projections.climateRiskScore}%, cost=RM${s.projections.operationalCostRM}`);
+        }
+        agentLines.push("]");
+      }
+
+      const agentContext = agentLines.length > 0 ? agentLines.join("\n") : "";
+      const fullUserMessage = `${languageLine}\n\n${sensorLine}\n\n${agentContext}\n\n${ragLine}\n\nFarmer's question: ${text.trim()}`;
 
       let replyText: string;
       let isOffline = false;
@@ -250,7 +285,7 @@ const ChatPage = () => {
         ].slice(-6)
       );
     },
-    [lang, soilMoisture, temp, lightLux, conversationHistory]
+    [lang, soilMoisture, temp, lightLux, conversationHistory, farmCtx]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -353,6 +388,26 @@ const ChatPage = () => {
             </div>
           )}
         </div>
+
+        {/* Agent context bar */}
+        {farmCtx.recommendation && (
+          <div className="px-3 py-2 bg-primary/5 border border-primary/10 rounded-xl mx-1 mb-1 flex items-center gap-2 text-xs text-primary font-medium">
+            <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>auto_awesome</span>
+            <span className="truncate">Strategy: {farmCtx.recommendation.strategyName}</span>
+            {farmCtx.riskProfile && (
+              <>
+                <span className="text-primary/30">·</span>
+                <span>Risk: {farmCtx.riskProfile.overallRisk}%</span>
+              </>
+            )}
+            {farmCtx.yieldEstimate && (
+              <>
+                <span className="text-primary/30">·</span>
+                <span>Yield: {farmCtx.yieldEstimate.adjustedPrediction} t/ha</span>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Sensor context bar */}
         <div className="px-3 py-2 bg-surface-container-low rounded-xl mx-1 mb-2 flex items-center justify-center gap-4 text-xs text-on-surface-variant font-medium">
