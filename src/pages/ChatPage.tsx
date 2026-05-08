@@ -7,6 +7,8 @@ import { searchAgricultureDocs } from "@/lib/supabase";
 import { ref, onValue } from "firebase/database";
 import ReactMarkdown from "react-markdown";
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
+import { generateScenarioTree } from "@/lib/agents/scenarioEngine";
+import type { FarmContext } from "@/lib/agents/types";
 
 type Lang = "BM" | "EN";
 type DocumentLanguage = "bm" | "en";
@@ -32,8 +34,8 @@ const SYSTEM_PROMPT: Record<Lang, string> = {
 };
 
 const QUICK_REPLIES: Record<Lang, string[]> = {
-  BM: ["Kenapa strategi ini disyorkan?", "Bila nak siram padi?", "Apakah risiko banjir sekarang?", "Harga baja urea?"],
-  EN: ["Why is this strategy recommended?", "When should I irrigate?", "What is the current flood risk?", "Explain the yield forecast"],
+  BM: ["Apa jadi jika harga padi RM 2.00?", "Kenapa strategi ini disyorkan?", "Bila nak siram padi?", "Berapa harga baja urea?"],
+  EN: ["What if paddy price is RM 2.00?", "Why is this strategy recommended?", "When should I irrigate?", "What is the price of urea fertilizer?"],
 };
 
 const PLACEHOLDERS: Record<Lang, string> = {
@@ -69,24 +71,26 @@ async function fetchRagContext(userMessage: string, lang: Lang): Promise<string>
     const languageSearchOrder = getLanguageSearchOrder(lang);
 
     for (const language of languageSearchOrder) {
-      for (const word of searchWords) {
-        if (allChunks.length >= 4) break;
-        try {
-          const chunks = await searchAgricultureDocs({
-            keyword: word,
-            language,
-            limit: 4,
-          });
-
-          for (const chunk of chunks) {
-            if (allChunks.length >= 4) break;
-            if (!allChunks.includes(chunk)) {
-              allChunks.push(chunk);
-            }
+      // Execute all Supabase queries for this language in parallel to massively improve response time
+      const searchPromises = searchWords.map(word => 
+        searchAgricultureDocs({
+          keyword: word,
+          language,
+          limit: 4,
+        }).catch(() => [] as string[])
+      );
+      
+      const resultsArray = await Promise.all(searchPromises);
+      
+      // Flatten the results and filter duplicates
+      for (const chunks of resultsArray) {
+        for (const chunk of chunks) {
+          if (allChunks.length >= 4) break;
+          if (!allChunks.includes(chunk)) {
+            allChunks.push(chunk);
           }
-        } catch {
-          // Skip individual query errors so chat can still respond.
         }
+        if (allChunks.length >= 4) break;
       }
 
       if (allChunks.length > 0) break;
@@ -98,10 +102,89 @@ async function fetchRagContext(userMessage: string, lang: Lang): Promise<string>
   }
 }
 
+async function runScenarioSimulation(action: string, farmCtx: FarmContext) {
+  const lowerAction = action.toLowerCase();
+
+  if (!farmCtx.perception || !farmCtx.riskProfile || !farmCtx.yieldEstimate) {
+    const fallbackAgents = ["Scenario Simulation Agent"];
+    if (lowerAction.includes("price") || lowerAction.includes("rm") || lowerAction.includes("harga")) fallbackAgents.push("Economic Intelligence Agent");
+    if (lowerAction.includes("delay") || lowerAction.includes("tunda") || lowerAction.includes("nanti")) fallbackAgents.push("Yield Forecast Agent");
+    if (lowerAction.includes("rain") || lowerAction.includes("hujan") || lowerAction.includes("flood")) fallbackAgents.push("Weather & Disaster Agent");
+
+    return { yieldImpact: 0, weatherRisk: 0, profitChange: 0, isRealEngine: false, involvedAgents: fallbackAgents };
+  }
+
+  // 1. CLONE the current context to avoid corrupting the main dashboard
+  const hypotheticalPerception = JSON.parse(JSON.stringify(farmCtx.perception));
+  const hypotheticalFindings = [...farmCtx.findings];
+  const hypotheticalRisk = { ...farmCtx.riskProfile };
+  let mutationLabel = "Baseline (No Change)";
+  const involvedAgents = ["Scenario Simulation Agent"];
+
+  // 2. APPLY MUTATIONS based on user input
+  // Case A: Delay Harvest
+  if (lowerAction.includes("delay") || lowerAction.includes("tunda") || lowerAction.includes("nanti")) {
+    const daysMatch = action.match(/\d+/);
+    const days = daysMatch ? parseInt(daysMatch[0]) : 7;
+    // Delaying harvest increases exposure to late-season monsoon/pest risk
+    hypotheticalRisk.overallRisk = Math.min(100, hypotheticalRisk.overallRisk + (days * 2.5));
+    hypotheticalRisk.floodRisk = Math.min(100, hypotheticalRisk.floodRisk + (days * 3));
+    mutationLabel = `Delayed harvest by ${days} days (Increased weather exposure)`;
+    involvedAgents.push("Yield Forecast Agent");
+  }
+
+  // Case B: Paddy Price Change
+  if (lowerAction.includes("price") || lowerAction.includes("harga") || lowerAction.includes("rm")) {
+    const rmMatch = action.match(/rm\s*(\d+(\.\d+)?)/i) || action.match(/(\d+(\.\d+)?)\s*rm/i);
+    if (rmMatch) {
+      const newPrice = parseFloat(rmMatch[1]);
+      hypotheticalPerception.market.paddyPricePerKgRM = newPrice;
+      mutationLabel = `Paddy market price shifted to RM ${newPrice}/kg`;
+      if (!involvedAgents.includes("Economic Intelligence Agent")) {
+        involvedAgents.push("Economic Intelligence Agent");
+      }
+    }
+  }
+
+  // Case C: Heavy Rainfall / Flood Scenario
+  if (lowerAction.includes("rain") || lowerAction.includes("hujan") || lowerAction.includes("flood") || lowerAction.includes("banjir")) {
+    hypotheticalPerception.weather.rainfall_48h_mm += 60;
+    hypotheticalRisk.floodRisk = Math.min(100, hypotheticalRisk.floodRisk + 40);
+    mutationLabel = "Simulating +60mm extreme rainfall event";
+    involvedAgents.push("Weather & Disaster Agent");
+  }
+
+  // 3. RUN THE REAL AGENT with the mutated hypothetical data
+  const tree = generateScenarioTree(
+    hypotheticalPerception,
+    hypotheticalFindings,
+    hypotheticalRisk,
+    farmCtx.yieldEstimate,
+    farmCtx.userGoal
+  );
+
+  const best = tree.scenarios.find(s => s.isRecommended) || tree.scenarios[0];
+  const yieldDiff = best.projections.yieldTonPerHa.mid - farmCtx.yieldEstimate.adjustedPrediction;
+
+  // Calculate profit delta relative to the main dashboard's recommended strategy
+  const currentProfit = farmCtx.scenarioTree?.scenarios.find(s => s.isRecommended)?.projections.profitRM.mid ?? 3000;
+  const profitDiff = best.projections.profitRM.mid - currentProfit;
+
+  return {
+    yieldImpact: yieldDiff,
+    weatherRisk: best.projections.climateRiskScore / 100,
+    profitChange: profitDiff,
+    isRealEngine: true,
+    engineSummary: `HYPOTHETICAL RUN: ${mutationLabel}. Strategy: '${best.name}'. Projection: ${best.projections.yieldTonPerHa.mid} t/ha.`,
+    involvedAgents,
+  };
+}
+
 async function callGemini(
   systemPrompt: string,
   conversationHistory: { role: string; content: string }[],
-  fullUserMessage: string
+  fullUserMessage: string,
+  onChunk: (text: string) => void
 ): Promise<string> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) throw new Error("Gemini API key not configured");
@@ -127,9 +210,16 @@ async function callGemini(
       ],
     });
 
-    const result = await chat.sendMessage(fullUserMessage);
-    const response = await result.response;
-    return response.text();
+    const result = await chat.sendMessageStream(fullUserMessage);
+    let fullText = "";
+
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      fullText += chunkText;
+      onChunk(fullText);
+    }
+
+    return fullText;
   } catch (error) {
     console.error("Gemini call failed:", error);
     throw error;
@@ -147,6 +237,7 @@ const ChatPage = () => {
   const [temp, setTemp] = useState<number | null>(null);
   const [lightLux, setLightLux] = useState<number | null>(null);
   const [conversationHistory, setConversationHistory] = useState<{ role: string; content: string }[]>([]);
+  const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const nextId = useRef(1);
 
@@ -183,7 +274,6 @@ const ChatPage = () => {
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim()) return;
-      setShowChips(false);
 
       const userMsg: ChatMessage = {
         id: nextId.current++,
@@ -201,6 +291,39 @@ const ChatPage = () => {
       const ragLine = ragContext ? `[AGRICULTURAL KNOWLEDGE:\n${ragContext}]` : "";
       const languageLine = `[RESPONSE LANGUAGE: ${getResponseLanguageLabel(lang)}. Reply only in ${getResponseLanguageLabel(lang)}.]`;
 
+      // 1. Detect Intent: Hypothetical "What-if" analysis
+      const lowerText = text.toLowerCase();
+      const isWhatIf = ["what if", "apa jadi jika", "delay", "tunda", "tangguh", "what happens if", "seandainya"].some(kw => lowerText.includes(kw));
+
+      let simulationContext = "";
+      const consultedAgents = new Set<string>();
+
+      if (isWhatIf) {
+        setActiveAgents(["Scenario Simulation Agent", "Analyzing Context..."]);
+
+        // We set a temporary message first to show the "Analyzing..." state natively in the chat
+        const tempMsgId = nextId.current++;
+        setMessages((prev) => [...prev, {
+          id: tempMsgId,
+          role: "assistant",
+          text: "*(Menjalankan simulasi / Running simulation...)*",
+          lang,
+          involvedAgents: ["Scenario Simulation Agent", "Analyzing Context..."]
+        }]);
+
+        // 2. Run Simulation: Call the Scenario Simulation Agent
+        const sim = await runScenarioSimulation(text, farmCtx);
+        sim.involvedAgents.forEach(a => consultedAgents.add(a));
+        setActiveAgents(Array.from(consultedAgents)); // Show exactly who is working right now
+
+        simulationContext = `[HYPOTHETICAL SIMULATION RESULT: Action="${text}", Est. Yield Impact=${sim.yieldImpact.toFixed(2)} t/ha, Weather Exposure Risk=${(sim.weatherRisk * 100).toFixed(0)}%, Est. Profit Change=RM ${sim.profitChange}. ${sim.isRealEngine ? sim.engineSummary : "(Fallback)"}]`;
+
+        // Remove the temporary message
+        setMessages((prev) => prev.filter(m => m.id !== tempMsgId));
+      }
+
+      setActiveAgents([]);
+
       // Inject FarmContext intelligence
       const agentLines: string[] = [];
       if (farmCtx.findings.length > 0) {
@@ -209,20 +332,24 @@ const ChatPage = () => {
           agentLines.push("[AGENT FINDINGS:");
           for (const f of topFindings) {
             agentLines.push(`- ${f.agentName} (${f.confidence}%): ${f.finding}. ${f.detail}`);
+            consultedAgents.add(f.agentName);
           }
           agentLines.push("]");
         }
       }
       if (farmCtx.recommendation) {
         agentLines.push(`[RECOMMENDED STRATEGY: ${farmCtx.recommendation.strategyName}. ${farmCtx.recommendation.summary}]`);
+        consultedAgents.add("Orchestrator Agent");
       }
       if (farmCtx.riskProfile) {
         const rp = farmCtx.riskProfile;
         agentLines.push(`[RISK PROFILE: Overall=${rp.overallRisk}%, Flood=${rp.floodRisk}%, Drought=${rp.droughtRisk}%, Disease=${rp.diseaseRisk}%, Market=${rp.marketRisk}%, Trend=${rp.riskTrend}]`);
+        consultedAgents.add("Weather & Disaster Agent");
       }
       if (farmCtx.yieldEstimate) {
         const ye = farmCtx.yieldEstimate;
         agentLines.push(`[YIELD ESTIMATE: ${ye.adjustedPrediction} t/ha (range: ${ye.confidenceBand.low}-${ye.confidenceBand.high}), model confidence: ${ye.modelConfidence}%]`);
+        consultedAgents.add("Yield Forecast Agent");
       }
       if (farmCtx.scenarioTree && farmCtx.scenarioTree.scenarios.length > 0) {
         agentLines.push("[SCENARIO COMPARISON:");
@@ -233,40 +360,52 @@ const ChatPage = () => {
       }
 
       const agentContext = agentLines.length > 0 ? agentLines.join("\n") : "";
-      const fullUserMessage = `${languageLine}\n\n${sensorLine}\n\n${agentContext}\n\n${ragLine}\n\nFarmer's question: ${text.trim()}`;
 
-      let replyText: string;
+      // 3. Inject Context: Simulation result added to prompt
+      const fullUserMessage = `${languageLine}\n\n${sensorLine}\n\n${agentContext}\n\n${simulationContext}\n\n${ragLine}\n\nFarmer's question: ${text.trim()}`;
+
       let isOffline = false;
+      const botMsgId = nextId.current++;
+
+      // Create a temporary message for streaming
+      setMessages((prev) => [...prev, {
+        id: botMsgId,
+        role: "assistant",
+        text: "",
+        lang,
+        involvedAgents: Array.from(consultedAgents)
+      }]);
 
       try {
-        replyText = await callGemini(SYSTEM_PROMPT[lang], conversationHistory, fullUserMessage);
+        // 4 & 5. LLM Call & Stream: Updated system prompt and streaming chunks
+        const replyText = await callGemini(
+          SYSTEM_PROMPT[lang],
+          conversationHistory,
+          fullUserMessage,
+          (chunk) => {
+            // Once streaming starts, we can clear active agents as the "work" is being revealed
+            setActiveAgents([]);
+            setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: chunk } : m));
+          }
+        );
+
+        setConversationHistory((prev) =>
+          [
+            ...prev,
+            { role: "user", content: text.trim() },
+            { role: "assistant", content: replyText },
+          ].slice(-6)
+        );
       } catch (err) {
         console.error("Gemini call failed:", err);
-        replyText = lang === "BM"
+        const errorText = lang === "BM"
           ? "Sambungan AI tidak tersedia sekarang, jadi SmartPaddy tidak akan mereka jawapan. Sila cuba lagi sebentar lagi."
           : "The AI connection is unavailable right now, so SmartPaddy will not fabricate an answer. Please try again shortly.";
-        isOffline = true;
+
+        setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, text: errorText, isOffline: true } : m));
+      } finally {
+        setIsTyping(false);
       }
-
-      const botMsg: ChatMessage = {
-        id: nextId.current++,
-        role: "assistant",
-        text: replyText,
-        lang,
-        isOffline,
-      };
-
-      setMessages((prev) => [...prev, botMsg]);
-      setIsTyping(false);
-
-      // Update conversation history (raw messages only, max 6)
-      setConversationHistory((prev) =>
-        [
-          ...prev,
-          { role: "user", content: text.trim() },
-          { role: "assistant", content: replyText },
-        ].slice(-6)
-      );
     },
     [lang, soilMoisture, temp, lightLux, conversationHistory, farmCtx]
   );
@@ -290,8 +429,8 @@ const ChatPage = () => {
             <button
               onClick={() => handleLangChange("BM")}
               className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "BM"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-on-surface-variant hover:text-primary"
+                ? "bg-primary text-primary-foreground"
+                : "text-on-surface-variant hover:text-primary"
                 }`}
             >
               BM
@@ -299,8 +438,8 @@ const ChatPage = () => {
             <button
               onClick={() => handleLangChange("EN")}
               className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "EN"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-on-surface-variant hover:text-primary"
+                ? "bg-primary text-primary-foreground"
+                : "text-on-surface-variant hover:text-primary"
                 }`}
             >
               EN
@@ -341,6 +480,16 @@ const ChatPage = () => {
                     {msg.isOffline && (
                       <span className="text-xs text-outline mb-1 block">{WARNING_LABEL}</span>
                     )}
+                    {msg.involvedAgents && msg.involvedAgents.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2 pb-2 border-b border-outline-variant/10">
+                        {msg.involvedAgents.map(agent => (
+                          <div key={agent} className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary/10 border border-tertiary/20 text-[9px] font-bold text-tertiary uppercase tracking-tight">
+                            <span className="w-1 h-1 rounded-full bg-tertiary" />
+                            {agent}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="prose prose-sm max-w-none prose-p:my-1 prose-li:my-0">
                       <ReactMarkdown>{msg.text}</ReactMarkdown>
                     </div>
@@ -353,18 +502,31 @@ const ChatPage = () => {
             )
           )}
 
-          {/* Typing indicator */}
-          {isTyping && (
+          {/* Typing indicator & Active Agents */}
+          {(isTyping || activeAgents.length > 0) && (
             <div className="flex gap-2.5 items-start">
               <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 text-lg">
                 {EMOJI_HERB}
               </div>
-              <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-surface-container-lowest border border-outline-variant/10 shadow-sm">
-                <div className="flex gap-1 items-center h-5">
-                  <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+              <div className="flex flex-col gap-2">
+                <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-surface-container-lowest border border-outline-variant/10 shadow-sm w-fit">
+                  <div className="flex gap-1 items-center h-5">
+                    <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-2 h-2 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
                 </div>
+
+                {activeAgents.length > 0 && (
+                  <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                    {activeAgents.map(agent => (
+                      <div key={agent} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary/10 border border-tertiary/20 text-[10px] font-bold text-tertiary uppercase tracking-tight">
+                        <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse" />
+                        {agent}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

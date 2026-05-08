@@ -135,28 +135,28 @@ const getSensorPill = (
   }
 
   if (kind === "soil") {
-    if (value >= 65 && value <= 80) return { label: "Optimal",   className: "bg-green-100 text-green-700" };
-    if (value > 80)                 return { label: "Saturated", className: "bg-yellow-100 text-yellow-700" };
-    if (value >= 45)                return { label: "Dry",       className: "bg-yellow-100 text-yellow-700" };
-    return                               { label: "Critical",   className: "bg-red-100 text-red-700" };
+    if (value >= 65 && value <= 80) return { label: "Optimal", className: "bg-green-100 text-green-700" };
+    if (value > 80) return { label: "Saturated", className: "bg-yellow-100 text-yellow-700" };
+    if (value >= 45) return { label: "Dry", className: "bg-yellow-100 text-yellow-700" };
+    return { label: "Critical", className: "bg-red-100 text-red-700" };
   }
 
   if (kind === "temperature") {
-    if (value <= 33) return { label: "Optimal",    className: "bg-green-100 text-green-700" };
-    if (value <= 35) return { label: "Warm",       className: "bg-yellow-100 text-yellow-700" };
-    return                 { label: "Heat Stress", className: "bg-red-100 text-red-700" };
+    if (value <= 33) return { label: "Optimal", className: "bg-green-100 text-green-700" };
+    if (value <= 35) return { label: "Warm", className: "bg-yellow-100 text-yellow-700" };
+    return { label: "Heat Stress", className: "bg-red-100 text-red-700" };
   }
 
   if (kind === "humidity") {
-    if (value >= 60 && value <= 80) return { label: "Optimal",    className: "bg-green-100 text-green-700" };
-    if (value <= 90)                return { label: "Humid",      className: "bg-yellow-100 text-yellow-700" };
-    return                               { label: "Fungal Risk", className: "bg-red-100 text-red-700" };
+    if (value >= 60 && value <= 80) return { label: "Optimal", className: "bg-green-100 text-green-700" };
+    if (value <= 90) return { label: "Humid", className: "bg-yellow-100 text-yellow-700" };
+    return { label: "Fungal Risk", className: "bg-red-100 text-red-700" };
   }
 
   if (kind === "water") {
-    if (value > 2)  return { label: "Flooded", className: "bg-green-100 text-green-700" };
-    if (value >= 1) return { label: "Low",     className: "bg-yellow-100 text-yellow-700" };
-    return               { label: "Dry Bed",  className: "bg-red-100 text-red-700" };
+    if (value > 2) return { label: "Flooded", className: "bg-green-100 text-green-700" };
+    if (value >= 1) return { label: "Low", className: "bg-yellow-100 text-yellow-700" };
+    return { label: "Dry Bed", className: "bg-red-100 text-red-700" };
   }
 
   return { label: "Live", className: "bg-slate-100 text-slate-500" };
@@ -587,9 +587,8 @@ const DashboardPage = () => {
             {recommendedActions.map((action) => (
               <div
                 key={action.text}
-                className={`rounded-xl px-4 py-4 text-sm font-medium ${
-                  action.tone === "warning" ? "bg-yellow-50 text-yellow-800" : "bg-emerald-50 text-emerald-800"
-                }`}
+                className={`rounded-xl px-4 py-4 text-sm font-medium ${action.tone === "warning" ? "bg-yellow-50 text-yellow-800" : "bg-emerald-50 text-emerald-800"
+                  }`}
               >
                 {action.text}
               </div>

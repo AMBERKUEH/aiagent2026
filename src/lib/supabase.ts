@@ -20,37 +20,23 @@ export async function searchAgricultureDocs({
   language,
   limit = 4,
 }: SearchAgricultureDocsParams): Promise<string[]> {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return [];
-  }
-
-  const url = new URL("/rest/v1/agriculture_docs", supabaseUrl);
-  url.searchParams.set("select", "chunk_text");
-  url.searchParams.set("language", `eq.${language}`);
-  url.searchParams.set("keywords", `cs.{${keyword}}`);
-  url.searchParams.set("limit", String(limit));
-
   try {
-    const response = await fetch(url.toString(), {
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${supabaseAnonKey}`,
-      },
-    });
+    const { data, error } = await supabase
+      .from('agriculture_docs')
+      .select('chunk_text')
+      .eq('language', language)
+      .contains('keywords', [keyword])
+      .limit(limit);
 
-    if (!response.ok) {
+    if (error || !data) {
       return [];
     }
 
-    const data = (await response.json()) as AgricultureDocRow[];
     return data
       .map((row) => row.chunk_text?.trim())
       .filter((chunk): chunk is string => Boolean(chunk));
   } catch (error) {
-    // Gracefully handle network errors (e.g., ERR_NAME_NOT_RESOLVED)
+    // Gracefully handle network errors
     return [];
   }
 }
