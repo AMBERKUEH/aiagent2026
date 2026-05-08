@@ -76,17 +76,17 @@ const SEVERITY_ICONS: Record<FindingSeverity, string> = {
 // ── Main component ──────────────────────────────────────────
 
 export default function CommandCenterPage() {
-  const { ctx, isRunning, runCycle, lastCycleTime } = useFarmContext();
+  const { ctx, isRunning, runCycle, lastCycleTime, hasLiveSensors, latestSensors } = useFarmContext();
   const navigate = useNavigate();
   const [goalType, setGoalType] = useState<GoalType>("balanced");
   const [budgetRM, setBudgetRM] = useState<number>(5000);
 
   // Auto-run on first mount
   useEffect(() => {
-    if (ctx.phase === "idle" && !isRunning) {
+    if (ctx.phase === "idle" && !isRunning && hasLiveSensors) {
       runCycle();
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ctx.phase, hasLiveSensors, isRunning, runCycle]);
 
   const handleRunCycle = () => {
     const goal: UserGoal = {
@@ -98,10 +98,12 @@ export default function CommandCenterPage() {
     runCycle(goal);
   };
 
-  const sensors = ctx.perception?.sensors;
+  const sensors = ctx.perception?.sensors ?? latestSensors;
   const recommendation = ctx.recommendation;
   const findings = ctx.findings;
   const riskProfile = ctx.riskProfile;
+  const market = ctx.perception?.market ?? null;
+  const yieldEstimate = ctx.yieldEstimate;
 
   // Sort findings: critical first, then warning, info, positive
   const sortedFindings = [...findings].sort((a, b) => {
@@ -110,6 +112,16 @@ export default function CommandCenterPage() {
   });
 
   const newFindings = sortedFindings.filter(f => f.severity !== "positive").length;
+  const activeAlerts = sortedFindings.filter(f => f.severity === "critical" || f.severity === "warning").slice(0, 3);
+  const recommendedScenario = ctx.scenarioTree?.scenarios.find(s => s.isRecommended) ?? ctx.scenarioTree?.scenarios[0] ?? null;
+  const hasRecommendationInputs = Boolean(ctx.yieldEstimate && ctx.perception?.market.status === "available");
+  const statusTone = !hasLiveSensors
+    ? { label: "Waiting for sensors", color: "text-amber-700", bg: "bg-amber-50", icon: "sensors_off" }
+    : ctx.phase === "error" || ctx.errors.length > 0
+      ? { label: "Partial intelligence", color: "text-amber-700", bg: "bg-amber-50", icon: "info" }
+      : ctx.phase === "done"
+        ? { label: "AI brief ready", color: "text-emerald-700", bg: "bg-emerald-50", icon: "verified" }
+        : { label: "AI analyzing", color: "text-blue-700", bg: "bg-blue-50", icon: "neurology" };
 
   return (
     <AppLayout>
@@ -127,7 +139,10 @@ export default function CommandCenterPage() {
                   <span className="material-symbols-outlined text-emerald-400 text-sm">smart_toy</span>
                   <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-400">SmartPaddy Agent System</span>
                 </div>
-                <h1 className="font-headline text-2xl font-bold">Command Center</h1>
+                <h1 className="font-headline text-2xl font-bold">AI Command Center</h1>
+                <p className="mt-1 max-w-xl text-xs text-white/60">
+                  SmartPaddy continuously perceives farm signals, analyzes risk, and recommends the next best decision.
+                </p>
               </div>
               <div className="flex flex-col items-end gap-1.5">
                 {ctx.phase === "done" && lastCycleTime !== null && (
@@ -162,6 +177,32 @@ export default function CommandCenterPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-4">
+          <div className={`rounded-2xl border border-slate-200 p-4 shadow-sm ${statusTone.bg}`}>
+            <div className="flex items-center gap-2">
+              <span className={`material-symbols-outlined text-base ${statusTone.color}`}>{statusTone.icon}</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Farm Status</span>
+            </div>
+            <p className={`mt-2 font-headline text-lg font-bold ${statusTone.color}`}>{statusTone.label}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Overall Risk</p>
+            <p className="mt-2 font-headline text-2xl font-bold text-slate-900">
+              {riskProfile ? `${riskProfile.overallRisk}%` : "--"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Yield Outlook</p>
+            <p className="mt-2 font-headline text-2xl font-bold text-slate-900">
+              {ctx.yieldEstimate ? `${ctx.yieldEstimate.adjustedPrediction} t/ha` : "--"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Decision Goal</p>
+            <p className="mt-2 text-sm font-bold text-slate-900">{GOAL_PRESETS[goalType].label}</p>
           </div>
         </section>
 
@@ -205,7 +246,7 @@ export default function CommandCenterPage() {
                 <span className={`material-symbols-outlined text-base ${isRunning ? "animate-spin" : ""}`}>
                   {isRunning ? "refresh" : "play_arrow"}
                 </span>
-                {isRunning ? "Running..." : "Run Agent Cycle"}
+                {isRunning ? "Analyzing..." : "Refresh AI Brief"}
               </button>
             </div>
           </div>
@@ -237,10 +278,10 @@ export default function CommandCenterPage() {
                 {recommendation.chain[0] && (
                   <div className="mt-3 rounded-xl bg-slate-50 p-3 border border-slate-100">
                     <p className="text-xs text-slate-700 font-medium">
-                      <span className="text-slate-400">Because → </span>{recommendation.chain[0].because}
+                      <span className="text-slate-400">Because: </span>{recommendation.chain[0].because}
                     </p>
                     <p className="text-xs text-slate-600 mt-1">
-                      <span className="text-slate-400">Trade-off → </span>{recommendation.chain[0].tradeoff}
+                      <span className="text-slate-400">Trade-off: </span>{recommendation.chain[0].tradeoff}
                     </p>
                   </div>
                 )}
@@ -252,6 +293,171 @@ export default function CommandCenterPage() {
             </div>
           </section>
         )}
+
+        {!recommendation && ctx.phase === "done" && (
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined text-amber-700">lightbulb</span>
+              <div>
+                <h2 className="font-headline text-base font-semibold text-amber-950">Recommendation not ready yet</h2>
+                <p className="mt-1 text-sm text-amber-800">
+                  SmartPaddy has analyzed the available inputs, but a ranked strategy needs live sensors, backend yield prediction, and market price data.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="font-headline text-base font-semibold text-slate-900">Active Risk Alerts</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+              {activeAlerts.length} active
+            </span>
+          </div>
+          {activeAlerts.length > 0 ? (
+            <div className="space-y-2">
+              {activeAlerts.map(alert => (
+                <div key={alert.id} className={`rounded-xl border p-3 ${SEVERITY_STYLES[alert.severity]}`}>
+                  <div className="flex items-start gap-2">
+                    <span className="material-symbols-outlined text-base">{SEVERITY_ICONS[alert.severity]}</span>
+                    <div>
+                      <p className="text-xs font-bold">{alert.finding}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-600">{alert.detail}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+              No active critical or warning alerts from the current agent cycle.
+            </p>
+          )}
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Yield Forecast Agent</p>
+                <h2 className="font-headline text-base font-semibold text-slate-900">Production Outlook</h2>
+              </div>
+              <span className="material-symbols-outlined text-primary">analytics</span>
+            </div>
+            {yieldEstimate ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="font-headline text-3xl font-bold text-slate-900">
+                    {yieldEstimate.adjustedPrediction} <span className="text-sm font-normal text-slate-500">t/ha</span>
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Range {yieldEstimate.confidenceBand.low} to {yieldEstimate.confidenceBand.high} t/ha | Model confidence {yieldEstimate.modelConfidence}%
+                  </p>
+                </div>
+                {yieldEstimate.adjustments.length > 0 ? (
+                  <div className="space-y-2">
+                    {yieldEstimate.adjustments.slice(0, 3).map((adjustment, index) => (
+                      <p key={`${adjustment.source}-${index}`} className="rounded-xl bg-slate-50 p-3 text-xs text-slate-700">
+                        {adjustment.delta > 0 ? "+" : ""}{adjustment.delta} t/ha from {adjustment.reason}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                    No cross-agent yield adjustment has been applied in the current cycle.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+                Yield forecast unavailable until the backend prediction API returns a real result.
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Economic Intelligence Agent</p>
+                <h2 className="font-headline text-base font-semibold text-slate-900">Market Summary</h2>
+              </div>
+              <span className="material-symbols-outlined text-primary">payments</span>
+            </div>
+            {market?.status === "available" ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Paddy Price</p>
+                    <p className="mt-1 text-lg font-bold text-emerald-700">
+                      {market.paddyPricePerKgRM === null ? "--" : `RM ${market.paddyPricePerKgRM.toFixed(2)}/kg`}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Demand</p>
+                    <p className="mt-1 text-lg font-bold capitalize text-slate-900">{market.demandLevel ?? "--"}</p>
+                  </div>
+                </div>
+                {market.fertilizers.length > 0 ? (
+                  <div className="space-y-2">
+                    {market.fertilizers.slice(0, 3).map(item => (
+                      <div key={item.name} className="flex items-center justify-between rounded-xl border border-slate-100 p-3 text-xs">
+                        <span className="font-semibold text-slate-800">{item.name}</span>
+                        <span className="font-bold text-slate-900">RM {item.priceRM.toFixed(2)} ({item.trend})</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Market API returned no fertilizer records.</p>
+                )}
+                <p className="text-[10px] text-slate-400">Source: {market.source}</p>
+              </div>
+            ) : (
+              <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+                {market?.error ?? "Market data unavailable. Configure VITE_MARKET_API_URL to enable live economic intelligence."}
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="font-headline text-base font-semibold text-slate-900">Quick Scenario Summary</h2>
+            <button
+              onClick={() => navigate("/scenarios")}
+              className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700"
+            >
+              Compare
+              <span className="material-symbols-outlined text-sm">arrow_forward</span>
+            </button>
+          </div>
+          {recommendedScenario ? (
+            <div className="grid gap-3 sm:grid-cols-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recommended Path</p>
+                <p className="mt-1 font-headline text-lg font-bold text-slate-900">{recommendedScenario.name}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Yield</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">{recommendedScenario.projections.yieldTonPerHa.mid} t/ha</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Profit</p>
+                <p className="mt-1 text-sm font-bold text-emerald-700">RM {recommendedScenario.projections.profitRM.mid.toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Risk</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">{recommendedScenario.projections.climateRiskScore}%</p>
+              </div>
+            </div>
+          ) : (
+            <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+              {hasRecommendationInputs
+                ? "Run an agent cycle to generate strategy pathways."
+                : "Scenario comparison will appear when the required real inputs are available."}
+            </p>
+          )}
+        </section>
 
         {/* ── Risk Overview ────────────────────────────────── */}
         {riskProfile && ctx.phase === "done" && (
@@ -323,15 +529,15 @@ export default function CommandCenterPage() {
                 <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
               </div>
               <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
-                <span>🌡️ {sensors.temperature ?? "--"}°C</span>
+                <span>{sensors.temperature ?? "--"} C</span>
                 <span className="text-slate-300">|</span>
-                <span>💧 {sensors.soilMoisture ?? "--"}%</span>
+                <span>Soil {sensors.soilMoisture ?? "--"}%</span>
                 <span className="text-slate-300">|</span>
-                <span>💦 {sensors.humidity ?? "--"}%</span>
+                <span>Humidity {sensors.humidity ?? "--"}%</span>
                 <span className="text-slate-300">|</span>
-                <span>☀️ {sensors.lightIntensity ?? "--"} lux</span>
+                <span>Light {sensors.lightIntensity ?? "--"} lux</span>
                 <span className="text-slate-300">|</span>
-                <span>🌊 {sensors.waterLevel ?? "--"} cm</span>
+                <span>Water {sensors.waterLevel ?? "--"} cm</span>
               </div>
             </div>
           </section>
@@ -347,6 +553,34 @@ export default function CommandCenterPage() {
               {ctx.phase === "synthesizing" && "Synthesizing cross-agent risk profile..."}
               {ctx.phase === "recommending" && "Generating strategic scenarios and ranking recommendations..."}
               {ctx.phase === "idle" && "Initializing agent pipeline..."}
+            </p>
+          </section>
+        )}
+
+        {!isRunning && ctx.errors.length > 0 && (
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined text-amber-700">info</span>
+              <div>
+                <h2 className="font-headline text-base font-semibold text-amber-950">Some intelligence is unavailable</h2>
+                <div className="mt-2 space-y-1">
+                  {ctx.errors.map((error, index) => (
+                    <p key={`${error.agentId}-${index}`} className="text-sm text-amber-800">
+                      {error.message}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {!hasLiveSensors && (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <span className="material-symbols-outlined text-3xl text-slate-400">sensors_off</span>
+            <p className="mt-2 text-sm font-semibold text-slate-700">Waiting for live Firebase sensors</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Agent cycles start only after real readings are available at /sensor_history.
             </p>
           </section>
         )}

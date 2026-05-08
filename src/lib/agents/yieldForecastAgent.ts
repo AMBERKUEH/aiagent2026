@@ -49,25 +49,10 @@ async function fetchBackendPrediction(sensors: NormalizedSensors): Promise<{
   }
 }
 
-// Heuristic fallback when backend is unavailable
-function heuristicYield(sensors: NormalizedSensors): number {
-  let base = 5.5; // Malaysia average paddy yield t/ha
-  if (sensors.soilMoisture !== null) {
-    if (sensors.soilMoisture >= 65 && sensors.soilMoisture <= 80) base += 0.8;
-    else if (sensors.soilMoisture < 45) base -= 1.2;
-    else if (sensors.soilMoisture > 88) base -= 0.5;
-  }
-  if (sensors.temperature !== null) {
-    if (sensors.temperature <= 33) base += 0.4;
-    else if (sensors.temperature > 35) base -= 0.8;
-  }
-  return Math.max(2, Math.min(9, base));
-}
-
 export async function runYieldForecastAgent(
   sensors: NormalizedSensors,
   otherFindings: AgentFinding[],
-): Promise<{ findings: AgentFinding[]; estimate: YieldEstimate }> {
+): Promise<{ findings: AgentFinding[]; estimate: YieldEstimate | null }> {
   const ts = new Date().toISOString();
   const base = {
     agentId: "yield-forecast" as const,
@@ -77,8 +62,23 @@ export async function runYieldForecastAgent(
   };
 
   const backendResult = await fetchBackendPrediction(sensors);
-  const rawPrediction = backendResult?.prediction ?? heuristicYield(sensors);
-  const modelConfidence = backendResult?.confidence ?? 55;
+  if (!backendResult) {
+    return {
+      findings: [{
+        ...base,
+        id: nextId(),
+        severity: "info",
+        finding: "Yield prediction unavailable",
+        detail: "The backend yield model did not return a prediction. No heuristic yield value was fabricated for this cycle.",
+        confidence: 100,
+        impactVector: { yieldImpact: 0, costImpactRM: 0, riskChange: 0, sustainabilityImpact: 0 },
+      }],
+      estimate: null,
+    };
+  }
+
+  const rawPrediction = backendResult.prediction;
+  const modelConfidence = backendResult.confidence;
 
   // Apply cross-agent adjustments
   const adjustments: YieldEstimate["adjustments"] = [];
@@ -121,7 +121,7 @@ export async function runYieldForecastAgent(
     ...base,
     id: nextId(),
     severity: riskLabel === "positive" ? "positive" : riskLabel === "info" ? "info" : "warning",
-    finding: `Yield projection: ${estimate.adjustedPrediction} t/ha (${estimate.confidenceBand.low}–${estimate.confidenceBand.high})`,
+    finding: `Yield projection: ${estimate.adjustedPrediction} t/ha (${estimate.confidenceBand.low}-${estimate.confidenceBand.high})`,
     detail: `Base model prediction: ${estimate.basePrediction} t/ha. ${
       adjustments.length > 0
         ? `Adjusted by ${adjustments.length} agent findings (net ${adjustments.reduce((s, a) => s + a.delta, 0) > 0 ? "+" : ""}${adjustments.reduce((s, a) => s + a.delta, 0).toFixed(2)} t/ha).`

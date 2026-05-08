@@ -9,6 +9,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { rtdb } from "@/lib/firebase";
 import { normalizeSensorPayload } from "@/lib/sensors";
+import type { NormalizedSensors } from "@/lib/sensors";
 import { ref, onValue } from "firebase/database";
 import { getOrchestrator, type Orchestrator } from "./orchestrator";
 import type { FarmContext, UserGoal, DiseaseResult } from "./types";
@@ -21,6 +22,8 @@ interface FarmContextValue {
   setGoal: (goal: UserGoal) => void;
   reportDisease: (disease: DiseaseResult) => void;
   lastCycleTime: number | null; // ms duration of last cycle
+  hasLiveSensors: boolean;
+  latestSensors: NormalizedSensors | null;
 }
 
 const FarmCtx = createContext<FarmContextValue>({
@@ -30,6 +33,8 @@ const FarmCtx = createContext<FarmContextValue>({
   setGoal: () => {},
   reportDisease: () => {},
   lastCycleTime: null,
+  hasLiveSensors: false,
+  latestSensors: null,
 });
 
 export function useFarmContext(): FarmContextValue {
@@ -41,6 +46,8 @@ export function FarmContextProvider({ children }: { children: ReactNode }) {
   const [ctx, setCtx] = useState<FarmContext>(createEmptyFarmContext());
   const [isRunning, setIsRunning] = useState(false);
   const [lastCycleTime, setLastCycleTime] = useState<number | null>(null);
+  const [hasLiveSensors, setHasLiveSensors] = useState(false);
+  const [latestSensors, setLatestSensors] = useState<NormalizedSensors | null>(null);
   const diseasesRef = useRef<DiseaseResult[]>([]);
 
   // Subscribe to orchestrator updates
@@ -59,6 +66,8 @@ export function FarmContextProvider({ children }: { children: ReactNode }) {
       (snapshot) => {
         const sensors = normalizeSensorPayload(snapshot.val() ?? {});
         orchestratorRef.current.updateSensors(sensors);
+        setHasLiveSensors(sensors.hasAnySensorValue);
+        setLatestSensors(sensors);
       },
       (error) => {
         console.error("Firebase sensor feed error:", error);
@@ -90,7 +99,7 @@ export function FarmContextProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <FarmCtx.Provider value={{ ctx, isRunning, runCycle, setGoal, reportDisease, lastCycleTime }}>
+    <FarmCtx.Provider value={{ ctx, isRunning, runCycle, setGoal, reportDisease, lastCycleTime, hasLiveSensors, latestSensors }}>
       {children}
     </FarmCtx.Provider>
   );

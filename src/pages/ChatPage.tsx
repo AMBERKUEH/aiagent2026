@@ -40,28 +40,6 @@ const PLACEHOLDERS: Record<Lang, string> = {
   EN: "Ask a farming question...",
 };
 
-function getFallback(msg: string, lang: Lang): string {
-  const lower = msg.toLowerCase();
-  if (/siram|irrigat|moisture|lembap/.test(lower)) {
-    return lang === "BM"
-      ? "Berdasarkan kelembapan tanah anda, siram padi jika kelembapan di bawah 40%. Pastikan air mencukupi pada peringkat pembungaan."
-      : "Based on your soil moisture, irrigate if reading drops below 40%. Ensure adequate water during flowering stage.";
-  }
-  if (/kuning|yellow|daun|leaf/.test(lower)) {
-    return lang === "BM"
-      ? "Daun kuning biasanya menunjukkan kekurangan nitrogen. Cuba tambah baja Urea dan pastikan pH tanah antara 5.5-6.5."
-      : "Yellow leaves usually indicate nitrogen deficiency. Try adding Urea fertiliser and check soil pH is between 5.5-6.5.";
-  }
-  if (/baja|urea|fertiliser|npk/.test(lower)) {
-    return lang === "BM"
-      ? "Harga baja semasa: Urea RM1.60/kg (subsidi), NPK Blue RM2.20/kg (subsidi). Beli di kedai baja berlesen FAMA."
-      : "Current fertiliser prices: Urea RM1.60/kg (subsidised), NPK Blue RM2.20/kg (subsidised). Buy from FAMA-licensed retailers.";
-  }
-  return lang === "BM"
-    ? "Maaf, saya tidak dapat menjawab soalan anda sekarang. Sila cuba lagi atau hubungi pegawai pertanian MARDI di kawasan anda."
-    : "Sorry, I'm unable to answer right now. Please try again or contact your local MARDI agriculture officer.";
-}
-
 function normalizeKeyword(word: string): string {
   return word
     .toLowerCase()
@@ -260,8 +238,10 @@ const ChatPage = () => {
       try {
         replyText = await callGroq(SYSTEM_PROMPT[lang], conversationHistory, fullUserMessage);
       } catch (err) {
-        console.error("Groq call failed, using fallback:", err);
-        replyText = getFallback(text, lang);
+        console.error("Groq call failed:", err);
+        replyText = lang === "BM"
+          ? "Sambungan AI tidak tersedia sekarang, jadi SmartPaddy tidak akan mereka jawapan. Sila cuba lagi sebentar lagi."
+          : "The AI connection is unavailable right now, so SmartPaddy will not fabricate an answer. Please try again shortly.";
         isOffline = true;
       }
 

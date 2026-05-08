@@ -144,7 +144,7 @@ function generateActions(
         { action: "Rely on rainfall for irrigation", actionBM: "Bergantung kepada hujan untuk pengairan", timing: "Ongoing", costRM: 0, rationale: "Reduce water pumping costs when rain is forecast", agentSource: "field-monitor" },
       );
       if (priceRising) {
-        actions.push({ action: "Delay fertilizer purchase — prices trending down next week", actionBM: "Tunda pembelian baja — harga dijangka turun minggu depan", timing: "Wait 5-7 days", costRM: -50, rationale: "Save on input costs by timing purchase", agentSource: "economic-intel" });
+        actions.push({ action: "Buy only the minimum fertilizer needed this week", actionBM: "Beli baja minimum yang diperlukan minggu ini", timing: "Immediate", costRM: 120, rationale: "Input prices are rising, so avoid overbuying while covering essential needs", agentSource: "economic-intel" });
       }
       break;
 
@@ -171,6 +171,10 @@ function projectScenario(
   market: MarketSnapshot,
   actions: StrategicAction[],
 ): ScenarioProjections {
+  if (market.paddyPricePerKgRM === null) {
+    throw new Error("Cannot project scenario profit without market paddy price data.");
+  }
+
   const baseYield = yieldEstimate.adjustedPrediction;
   const projectedYield = baseYield * archetype.yieldMultiplier;
   const yieldBand = yieldEstimate.confidenceBand;
@@ -293,14 +297,25 @@ function scoreGoalAlignment(
   const waterScore = Math.min(100, Math.max(0, 100 - (projections.waterUsageLiters / 120)));
   const sustainScore = projections.sustainabilityScore;
 
-  return Math.round(
+  const strategyPreference: Partial<Record<GoalType, StrategyType>> = {
+    maximize_yield: "aggressive_growth",
+    minimize_risk: "climate_safe",
+    minimize_cost: "cost_saving",
+    optimize_water: "climate_safe",
+    balanced: "balanced",
+  };
+
+  const goalPrior = strategyPreference[goalType] === archetype.type ? 12 : 0;
+
+  return Math.min(100, Math.round(
     yieldScore * w.yield +
     profitScore * w.profit +
     riskScore * w.risk +
     costScore * w.cost +
     waterScore * w.water +
-    sustainScore * w.sustain
-  );
+    sustainScore * w.sustain +
+    goalPrior
+  ));
 }
 
 // ── Main scenario generation ────────────────────────────────
@@ -330,8 +345,8 @@ export function generateScenarioTree(
 
     const assumptions = [
       "Current sensor readings remain representative for the next 48 hours",
-      "Weather forecast accuracy within ±30% for 10-day window",
-      `Market prices stable within ±${archetype.type === "cost_saving" ? "5" : "10"}% for projection period`,
+      "Weather forecast accuracy within +/-30% for 10-day window",
+      `Market prices stable within +/-${archetype.type === "cost_saving" ? "5" : "10"}% for projection period`,
     ];
 
     const breakpoints = [];

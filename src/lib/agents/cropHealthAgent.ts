@@ -62,7 +62,7 @@ export function runCropHealthAgent(
         id: nextId(),
         severity: "critical",
         finding: `Severe vegetation stress: NDVI dropped ${n.drop_pct}%`,
-        detail: `Zone ${n.zone_id} shows ${n.drop_pct}% NDVI decline from seasonal average (${n.seasonal_avg_ndvi} → ${n.current_ndvi}). Possible nutrient deficiency or undetected disease.`,
+        detail: `Zone ${n.zone_id} shows ${n.drop_pct}% NDVI decline from seasonal average (${n.seasonal_avg_ndvi} to ${n.current_ndvi}). Possible nutrient deficiency or undetected disease.`,
         confidence: 75,
         dataSources: [n.source],
         impactVector: {

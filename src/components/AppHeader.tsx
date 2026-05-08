@@ -1,4 +1,8 @@
+import { useAuth } from "@/lib/auth/AuthProvider";
+
 const AppHeader = () => {
+  const { user, logout } = useAuth();
+
   return (
     <header className="fixed top-0 w-full z-50 bg-surface-container-lowest flex justify-between items-center px-6 py-4">
       <div className="flex items-center gap-3">
@@ -13,8 +17,13 @@ const AppHeader = () => {
           SmartPaddy MY
         </h1>
       </div>
-      <button className="w-10 h-10 flex items-center justify-center rounded-full text-primary hover:bg-surface-container-high/50 transition-colors active:scale-95">
-        <span className="material-symbols-outlined">notifications</span>
+      <button
+        onClick={() => logout()}
+        className="flex h-10 items-center gap-2 rounded-full px-3 text-primary hover:bg-surface-container-high/50 transition-colors active:scale-95"
+        title={user?.email ? `Sign out ${user.email}` : "Sign out"}
+      >
+        <span className="hidden max-w-[140px] truncate text-xs font-semibold sm:inline">{user?.email}</span>
+        <span className="material-symbols-outlined">logout</span>
       </button>
     </header>
   );

@@ -79,12 +79,12 @@ function ScenarioCard({
           <div>
             <span className="text-[10px] text-slate-400 uppercase tracking-wider">Yield</span>
             <p className="font-headline text-xl font-bold text-slate-900">{proj.yieldTonPerHa.mid} <span className="text-xs text-slate-400 font-normal">t/ha</span></p>
-            <p className="text-[10px] text-slate-400">{proj.yieldTonPerHa.low} – {proj.yieldTonPerHa.high}</p>
+            <p className="text-[10px] text-slate-400">{proj.yieldTonPerHa.low} to {proj.yieldTonPerHa.high}</p>
           </div>
           <div>
             <span className="text-[10px] text-slate-400 uppercase tracking-wider">Profit</span>
             <p className="font-headline text-xl font-bold text-emerald-700">RM {proj.profitRM.mid.toLocaleString()}</p>
-            <p className="text-[10px] text-slate-400">RM {proj.profitRM.low.toLocaleString()} – {proj.profitRM.high.toLocaleString()}</p>
+            <p className="text-[10px] text-slate-400">RM {proj.profitRM.low.toLocaleString()} to {proj.profitRM.high.toLocaleString()}</p>
           </div>
         </div>
 
@@ -113,7 +113,7 @@ function ScenarioCard({
                     <p className="text-xs font-semibold text-slate-800">{a.action}</p>
                     <span className="text-[10px] font-bold text-slate-500 whitespace-nowrap">RM {a.costRM}</span>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">{a.timing} · {a.rationale}</p>
+                  <p className="text-[10px] text-slate-400 mt-1">{a.timing} | {a.rationale}</p>
                 </div>
               ))}
             </div>
@@ -133,7 +133,7 @@ function ScenarioCard({
                     {i < scenario.reasoning.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
                   </div>
                   <div className="pb-3">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{r.agentName} · {r.confidence}%</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{r.agentName} | {r.confidence}%</p>
                     <p className="text-xs text-slate-700 font-medium mt-0.5">{r.observation}</p>
                     <p className="text-[11px] text-slate-500 mt-0.5 italic">{r.inference}</p>
                   </div>
@@ -150,7 +150,7 @@ function ScenarioCard({
                 Re-evaluation Triggers
               </p>
               {scenario.breakpoints.map((bp, i) => (
-                <p key={i} className="text-xs text-amber-800 mt-0.5">· {bp}</p>
+                <p key={i} className="text-xs text-amber-800 mt-0.5">- {bp}</p>
               ))}
             </div>
           )}
@@ -244,10 +244,10 @@ export default function ScenarioExplorerPage() {
                 <p className="text-xs text-indigo-800 leading-relaxed">{recommendation.summary}</p>
                 {recommendation.chain[0] && (
                   <div className="mt-2 space-y-1 text-[11px] font-mono text-indigo-700">
-                    <p><span className="text-indigo-400">→ because:</span> {recommendation.chain[0].because}</p>
-                    <p><span className="text-indigo-400">→ which means:</span> {recommendation.chain[0].whichMeans}</p>
-                    <p><span className="text-indigo-400">→ so instead:</span> {recommendation.chain[0].soInstead}</p>
-                    <p><span className="text-indigo-400">→ trade-off:</span> {recommendation.chain[0].tradeoff}</p>
+                    <p><span className="text-indigo-400">Because:</span> {recommendation.chain[0].because}</p>
+                    <p><span className="text-indigo-400">Which means:</span> {recommendation.chain[0].whichMeans}</p>
+                    <p><span className="text-indigo-400">So instead:</span> {recommendation.chain[0].soInstead}</p>
+                    <p><span className="text-indigo-400">Trade-off:</span> {recommendation.chain[0].tradeoff}</p>
                   </div>
                 )}
                 {recommendation.contributors.length > 0 && (

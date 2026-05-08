@@ -5,12 +5,12 @@
 // pipeline. This is the "brain" that makes SmartPaddy agentic.
 // ============================================================
 
-import { normalizeSensorPayload, type NormalizedSensors } from "@/lib/sensors";
+import type { NormalizedSensors } from "@/lib/sensors";
 import { runWeatherDisasterAgent } from "@/lib/weatherDisasterAgent";
 
 import { runFieldMonitorAgent } from "./fieldMonitorAgent";
 import { runCropHealthAgent } from "./cropHealthAgent";
-import { generateMarketSnapshot, runEconomicIntelAgent } from "./economicIntelAgent";
+import { fetchMarketSnapshot, runEconomicIntelAgent } from "./economicIntelAgent";
 import { runYieldForecastAgent } from "./yieldForecastAgent";
 import { generateScenarioTree, buildExplainableRecommendation } from "./scenarioEngine";
 
@@ -113,14 +113,19 @@ export class Orchestrator {
       // ── PHASE 1: PERCEIVE ───────────────────────────────
       this.setPhase("perceiving");
 
-      const sensors = sensorOverride ?? this.latestSensors ?? fallbackSensors();
-      const startPerceive = Date.now();
+      const sensors = sensorOverride ?? this.latestSensors;
+      if (!sensors || !sensors.hasAnySensorValue) {
+        throw new Error("Live Firebase sensor readings are unavailable. Connect sensor_history data before running an agent cycle.");
+      }
 
       // Run weather agent (existing code, real APIs)
-      const weatherResult = await runWeatherDisasterAgent(["north", "central", "south"]);
+      const weatherResult = await runWeatherDisasterAgent(["north", "central", "south"], {
+        soilMoisture: sensors.soilMoisture,
+        timestamp: sensors.timestamp,
+      });
 
-      // Generate market snapshot
-      const market = generateMarketSnapshot();
+      // Fetch market snapshot from a configured API. If unavailable, the economic agent reports it transparently.
+      const market = await fetchMarketSnapshot();
 
       const perception: PerceptionResult = {
         sensors,
@@ -192,17 +197,35 @@ export class Orchestrator {
       // ── PHASE 4: RECOMMEND ──────────────────────────────
       this.setPhase("recommending");
 
-      const scenarioTree = generateScenarioTree(
-        perception,
-        allFindings,
-        riskProfile,
-        yieldEstimate,
-        this.context.userGoal,
-      );
-      this.context.scenarioTree = scenarioTree;
+      if (!yieldEstimate) {
+        this.context.errors.push({
+          agentId: "yield-forecast",
+          message: "Scenario generation requires a live backend yield prediction.",
+          timestamp: new Date().toISOString(),
+        });
+        this.context.scenarioTree = null;
+        this.context.recommendation = null;
+      } else if (market.status !== "available" || market.paddyPricePerKgRM === null) {
+        this.context.errors.push({
+          agentId: "economic-intel",
+          message: "Scenario generation requires market price data from a configured API.",
+          timestamp: new Date().toISOString(),
+        });
+        this.context.scenarioTree = null;
+        this.context.recommendation = null;
+      } else {
+        const scenarioTree = generateScenarioTree(
+          perception,
+          allFindings,
+          riskProfile,
+          yieldEstimate,
+          this.context.userGoal,
+        );
+        this.context.scenarioTree = scenarioTree;
 
-      const recommendation = buildExplainableRecommendation(scenarioTree, allFindings);
-      this.context.recommendation = recommendation;
+        const recommendation = buildExplainableRecommendation(scenarioTree, allFindings);
+        this.context.recommendation = recommendation;
+      }
 
       this.context.timestamp = new Date().toISOString();
       this.setPhase("done");
@@ -299,19 +322,6 @@ function synthesizeRiskProfile(findings: AgentFinding[], perception: PerceptionR
 }
 
 // ── Fallback sensors for demo mode ──────────────────────────
-
-function fallbackSensors(): NormalizedSensors {
-  return {
-    humidity: 72,
-    lightIntensity: 14200,
-    soilMoisture: 68,
-    temperature: 31,
-    waterLevel: 2.1,
-    timestamp: new Date().toISOString(),
-    sourceKeys: ["demo_mode"],
-    hasAnySensorValue: true,
-  };
-}
 
 // ── Singleton instance ──────────────────────────────────────
 

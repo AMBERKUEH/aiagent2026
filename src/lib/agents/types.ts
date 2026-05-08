@@ -67,15 +67,17 @@ export interface AgentFinding {
 // ── Perception Layer ────────────────────────────────────────
 
 export interface MarketSnapshot {
+  status: "available" | "unavailable";
   fertilizers: {
     name: string;
     priceRM: number;
     trend: "up" | "stable" | "down";
     weeklyChangePct: number;
   }[];
-  paddyPricePerKgRM: number;
-  demandLevel: "high" | "moderate" | "low";
+  paddyPricePerKgRM: number | null;
+  demandLevel: "high" | "moderate" | "low" | null;
   source: string;
+  error?: string;
 }
 
 export interface DiseaseResult {

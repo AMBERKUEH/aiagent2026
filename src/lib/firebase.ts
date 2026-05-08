@@ -1,4 +1,5 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 
 // Firebase is used only for live sensor readings from Realtime Database.
@@ -32,4 +33,5 @@ if (missingKeys.length > 0) {
 }
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const auth = getAuth(app);
 export const rtdb = getDatabase(app);

@@ -1,11 +1,11 @@
 import { useNavigate, useLocation } from "react-router-dom";
 
 const navItems = [
-  { icon: "neurology", label: "Command", path: "/" },
+  { icon: "home", label: "Home", path: "/" },
   { icon: "account_tree", label: "Scenarios", path: "/scenarios" },
-  { icon: "smart_toy", label: "AI", path: "/chat" },
-  { icon: "center_focus_strong", label: "Scanner", path: "/scanner" },
   { icon: "map", label: "Map", path: "/map" },
+  { icon: "forum", label: "Ask AI", path: "/chat" },
+  { icon: "person", label: "Profile", path: "/profile" },
 ];
 
 const BottomNav = () => {

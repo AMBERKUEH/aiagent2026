@@ -4,7 +4,7 @@
 // Data sources:
 //   - Open-Meteo API (real, free, no key) → 48h / 10d forecast
 //   - NASA POWER API (real, free, no key) → 30-year baseline
-//   - Simulated NDVI, IoT soil moisture, SPI, monsoon track
+//   - Firebase RTDB live soil moisture when available
 // ============================================================
 
 export type AlertType = "FLOOD" | "DROUGHT" | "MONSOON" | "CLEAR";
@@ -274,22 +274,8 @@ async function fetchOpenMeteo(lat: number, lon: number): Promise<WeatherForecast
       data_age_hours: 0,
       source: "Open-Meteo",
     };
-  } catch {
-    // Realistic fallback for Malaysia (northeast-monsoon season)
-    return {
-      rainfall_48h_mm: 28,
-      rainfall_24h_mm: 12,
-      rainfall_10d_mm: 55,
-      temperature_max_c: 33,
-      temperature_min_c: 25,
-      humidity_pct: 78,
-      wind_direction_deg: 225,
-      wind_speed_kmh: 20,
-      humidity_3day_avg: 76,
-      no_rain_forecast_days: 2,
-      data_age_hours: 4, // mark stale if fallback
-      source: "Open-Meteo (fallback)",
-    };
+  } catch (error) {
+    throw new Error(error instanceof Error ? `Open-Meteo unavailable: ${error.message}` : "Open-Meteo unavailable.");
   }
 }
 
@@ -332,82 +318,26 @@ async function fetchNasaPowerBaseline(lat: number, lon: number): Promise<Histori
       period_years: 30,
       source: "NASA POWER",
     };
-  } catch {
-    return {
-      avg_rainfall_mm: 145,
-      avg_temperature_c: 32,
-      period_years: 30,
-      source: "NASA POWER (fallback)",
-    };
+  } catch (error) {
+    throw new Error(error instanceof Error ? `NASA POWER unavailable: ${error.message}` : "NASA POWER unavailable.");
   }
 }
 
-// ── Simulated NDVI (Sentinel-2 seasonal model) ──────────────
-function simulateNdvi(zones: FarmZone[], now: Date): NdviReading[] {
-  // Seasonal NDVI pattern for Malaysia paddy (peaks Jan, Jul)
-  const month = now.getMonth(); // 0-based
-  const seasonal = 0.55 + 0.12 * Math.sin((month / 12) * 2 * Math.PI);
-
-  return zones.map((z) => {
-    const seed = z.lat * 100 + z.lon;
-    const rand = ((Math.sin(seed + now.getDate()) + 1) / 2) * 0.1 - 0.05;
-    const current = Math.min(0.85, Math.max(0.3, seasonal + rand));
-    const drop_pct = Math.round(((seasonal - current) / seasonal) * 100 * 10) / 10;
-    return {
-      zone_id: z.spatial_zone_id,
-      current_ndvi: Math.round(current * 1000) / 1000,
-      seasonal_avg_ndvi: Math.round(seasonal * 1000) / 1000,
-      drop_pct: Math.max(0, drop_pct),
-      source: "Sentinel-2 / NDVI (simulated)",
-    };
-  });
-}
-
-// ── Simulated IoT Soil Moisture ──────────────────────────────
-function simulateSoil(zones: FarmZone[], weather: WeatherForecast, now: Date): SoilReading[] {
-  return zones.map((z) => {
-    const seed = z.lat * 17 + z.lon * 7 + now.getHours();
-    const base = 45 + ((Math.sin(seed) + 1) / 2) * 40; // 45-85%
-    // Boost moisture if lots of rain forecast
-    const boost = Math.min(20, weather.rainfall_48h_mm / 3);
-    const moisture = Math.min(98, Math.max(15, base + boost));
-    return {
-      zone_id: z.spatial_zone_id,
-      moisture_pct: Math.round(moisture),
-      source: "IoT sensor (simulated)",
-      timestamp: new Date(Date.now() - Math.random() * 7200000).toISOString(),
-    };
-  });
-}
-
-// ── Simulated SPI Drought Index ──────────────────────────────
-function simulateSpi(zones: FarmZone[], weather: WeatherForecast, baseline: HistoricalBaseline): SpiReading[] {
-  // SPI = (observed - mean) / stdev  (simplified)
-  const stdev = baseline.avg_rainfall_mm * 0.22; // ~22% CV for Malaysia
-  return zones.map((z, i) => {
-    const offset = [0, 0.15, -0.25][i] ?? 0; // zone variance
-    const spi = Math.round(((weather.rainfall_10d_mm - baseline.avg_rainfall_mm / 3 + offset * 30) / stdev) * 100) / 100;
-    return {
-      zone_id: z.spatial_zone_id,
-      spi_value: Math.max(-3, Math.min(3, spi)),
-      period_days: 10,
-    };
-  });
-}
-
-// ── Simulated Monsoon Track ──────────────────────────────────
-function simulateMonsoon(weather: WeatherForecast): MonsoonTrack {
+// ── Monsoon Track Derived From Forecast Inputs ───────────────
+function deriveMonsoonTrack(weather: WeatherForecast): MonsoonTrack {
   // SW monsoon (May-Sep) / NE monsoon (Nov-Mar) for Malaysia
   const month = new Date().getMonth() + 1;
-  const monsoon_season = (month >= 5 && month <= 9) || month === 11 || month <= 1 || 3;
+  const monsoon_season = (month >= 5 && month <= 9) || month === 11 || month === 12 || month <= 3;
   const sw_wind = weather.wind_direction_deg >= 195 && weather.wind_direction_deg <= 255;
-  const days_away = monsoon_season ? Math.floor(Math.random() * 6) + 2 : 15;
+  const days_away = monsoon_season && weather.humidity_3day_avg > 75
+    ? (sw_wind ? 3 : 5)
+    : 15;
 
   return {
     front_days_away: days_away,
     sw_wind_detected: sw_wind,
     humidity_3day_above_75: weather.humidity_3day_avg > 75,
-    source: "IMD/ECMWF (simulated)",
+    source: "Open-Meteo derived monsoon signal",
   };
 }
 
@@ -421,9 +351,9 @@ function windCardinal(deg: number): string {
 function runThresholds(
   zone: FarmZone,
   weather: WeatherForecast,
-  soil: SoilReading,
-  ndvi: NdviReading,
-  spi: SpiReading,
+  soil: SoilReading | null,
+  ndvi: NdviReading | null,
+  spi: SpiReading | null,
   monsoon: MonsoonTrack,
   baseline: HistoricalBaseline,
 ): AgentAlert[] {
@@ -452,7 +382,7 @@ function runThresholds(
     floodSignals.push(`${weather.rainfall_48h_mm}mm rainfall forecast 48h (threshold ${FLOOD_RAIN_48H}mm)`);
     floodConfidence += 20;
   }
-  if (soil.moisture_pct > FLOOD_SOIL) {
+  if (soil && soil.moisture_pct > FLOOD_SOIL) {
     floodSignals.push(`soil moisture ${soil.moisture_pct}% of field capacity (threshold ${FLOOD_SOIL}%)`);
     floodConfidence += 18;
   }
@@ -474,7 +404,7 @@ function runThresholds(
       prediction: `${sev === "critical" ? "High flood risk, waterlogging likely" : "Elevated flood risk, field monitoring required"}`,
       action: "Drain fields immediately. Do NOT irrigate. Delay fertiliser 72h.",
       confidence: conf,
-      sources: [weather.source, soil.source],
+      sources: [weather.source, soil?.source].filter((source): source is string => Boolean(source)),
       spatial_zone_id: zone.spatial_zone_id,
       stale_data: isStale,
       low_confidence_critical: sev === "critical" && conf < 70,
@@ -485,15 +415,15 @@ function runThresholds(
   const droughtSignals: string[] = [];
   let droughtConfidence = 55;
 
-  if (spi.spi_value < DROUGHT_SPI) {
+  if (spi && spi.spi_value < DROUGHT_SPI) {
     droughtSignals.push(`SPI drought index ${spi.spi_value} (threshold ${DROUGHT_SPI})`);
     droughtConfidence += 20;
   }
-  if (ndvi.drop_pct > DROUGHT_NDVI_DROP) {
+  if (ndvi && ndvi.drop_pct > DROUGHT_NDVI_DROP) {
     droughtSignals.push(`NDVI dropped ${ndvi.drop_pct}% below seasonal average (threshold ${DROUGHT_NDVI_DROP}%)`);
     droughtConfidence += 20;
   }
-  if (soil.moisture_pct < DROUGHT_SOIL && weather.no_rain_forecast_days >= 7) {
+  if (soil && soil.moisture_pct < DROUGHT_SOIL && weather.no_rain_forecast_days >= 7) {
     droughtSignals.push(
       `soil moisture ${soil.moisture_pct}% with no rain forecast ${weather.no_rain_forecast_days} days`,
     );
@@ -513,7 +443,7 @@ function runThresholds(
       prediction: `Drought stress developing. Crop yield risk ${sev === "critical" ? "severe" : "moderate"} if uncorrected.`,
       action: "Increase irrigation 30%. Pre-fill reservoir. Switch to drip if available.",
       confidence: conf,
-      sources: [ndvi.source, spi.zone_id, soil.source, baseline.source],
+      sources: [ndvi?.source, spi?.zone_id, soil?.source, baseline.source].filter((source): source is string => Boolean(source)),
       spatial_zone_id: zone.spatial_zone_id,
       stale_data: isStale,
       low_confidence_critical: sev === "critical" && conf < 70,
@@ -563,11 +493,11 @@ function runThresholds(
       severity: "low",
       zone: `${zone.name} Zone`,
       timeframe: "48 hours",
-      signal: `Rain ${weather.rainfall_48h_mm}mm, soil ${soil.moisture_pct}%, SPI ${spi.spi_value}, NDVI ${ndvi.current_ndvi}`,
-      prediction: "No active threats. All indicators within safe ranges.",
+      signal: `Rain ${weather.rainfall_48h_mm}mm${soil ? `, soil ${soil.moisture_pct}%` : ""}${spi ? `, SPI ${spi.spi_value}` : ""}${ndvi ? `, NDVI ${ndvi.current_ndvi}` : ""}`,
+      prediction: "No active weather threats detected from the available real inputs.",
       action: "No active threats. Next scheduled check in 6 hours.",
       confidence: 90 - stalePenalty,
-      sources: [weather.source, ndvi.source],
+      sources: [weather.source, ndvi?.source].filter((source): source is string => Boolean(source)),
       spatial_zone_id: zone.spatial_zone_id,
       stale_data: isStale,
     });
@@ -594,6 +524,7 @@ function buildSms(alerts: AgentAlert[]): string {
 // ── Main agent run function ──────────────────────────────────
 export async function runWeatherDisasterAgent(
   selectedZoneIds: string[] = ["north", "central", "south"],
+  liveSensors?: { soilMoisture: number | null; timestamp: string | null },
 ): Promise<AgentRunResult> {
   const now = new Date();
 
@@ -604,19 +535,27 @@ export async function runWeatherDisasterAgent(
     fetchNasaPowerBaseline(primaryZone.lat, primaryZone.lon),
   ]);
 
-  // 2. Simulate remaining data feeds
+  // 2. Use only real or directly-derived data. NDVI/SPI stay unavailable unless a real feed is connected.
   const zones = FARM_ZONES.filter((z) => selectedZoneIds.includes(z.id));
-  const soil = simulateSoil(zones, weather, now);
-  const ndvi = simulateNdvi(zones, now);
-  const spi = simulateSpi(zones, weather, baseline);
-  const monsoon = simulateMonsoon(weather);
+  const soil: SoilReading[] =
+    liveSensors?.soilMoisture !== null && liveSensors?.soilMoisture !== undefined
+      ? [{
+          zone_id: primaryZone.spatial_zone_id,
+          moisture_pct: liveSensors.soilMoisture,
+          source: "Firebase RTDB live soil sensor",
+          timestamp: liveSensors.timestamp ?? now.toISOString(),
+        }]
+      : [];
+  const ndvi: NdviReading[] = [];
+  const spi: SpiReading[] = [];
+  const monsoon = deriveMonsoonTrack(weather);
 
   // 3. Run threshold engine for each zone
   const allAlerts: AgentAlert[] = [];
   for (const zone of zones) {
-    const zoneSoil = soil.find((s) => s.zone_id === zone.spatial_zone_id) ?? soil[0];
-    const zoneNdvi = ndvi.find((n) => n.zone_id === zone.spatial_zone_id) ?? ndvi[0];
-    const zoneSpi = spi.find((s) => s.zone_id === zone.spatial_zone_id) ?? spi[0];
+    const zoneSoil = soil.find((s) => s.zone_id === zone.spatial_zone_id) ?? null;
+    const zoneNdvi = ndvi.find((n) => n.zone_id === zone.spatial_zone_id) ?? null;
+    const zoneSpi = spi.find((s) => s.zone_id === zone.spatial_zone_id) ?? null;
     const zoneAlerts = runThresholds(zone, weather, zoneSoil, zoneNdvi, zoneSpi, monsoon, baseline);
     allAlerts.push(...zoneAlerts);
   }
