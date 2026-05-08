@@ -186,7 +186,6 @@ const MapPage = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedZones, setSelectedZones] = useState<string[]>(["north", "central", "south"]);
-  const [showJson, setShowJson] = useState(false);
   const [showDataPanel, setShowDataPanel] = useState(false);
   const [nextRunSecs, setNextRunSecs] = useState<number | null>(null);
   const countdownRef = useRef<number | null>(null);
@@ -817,46 +816,7 @@ const MapPage = () => {
           </div>
         )}
 
-        {/* ── JSON OUTPUT ───────────────────────────────────── */}
-        {result && (
-          <div className="rounded-2xl bg-surface-container-lowest border border-outline-variant/20 shadow-sm overflow-hidden">
-            <button
-              id="toggle-json-btn"
-              className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-surface-container-low/40 transition-colors"
-              onClick={() => setShowJson((v) => !v)}
-            >
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary text-base">data_object</span>
-                <h2 className="font-headline text-base font-semibold text-primary">
-                  Agent JSON Output
-                </h2>
-                <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-mono text-on-surface-variant">
-                  {JSON.stringify(result.alerts).length} bytes
-                </span>
-              </div>
-              <span className="material-symbols-outlined text-outline">
-                {showJson ? "expand_less" : "expand_more"}
-              </span>
-            </button>
-            {showJson && (
-              <div className="border-t border-outline-variant/15">
-                <pre className="overflow-x-auto p-5 text-[11px] font-mono text-primary/80 bg-slate-950 text-emerald-300 leading-relaxed max-h-96">
-                  {JSON.stringify(
-                    {
-                      run_timestamp: result.run_timestamp,
-                      farm_location: result.farm_location,
-                      alerts: result.alerts,
-                      summary_sms: result.summary_sms,
-                      next_run_in_hours: result.next_run_in_hours,
-                    },
-                    null,
-                    2,
-                  )}
-                </pre>
-              </div>
-            )}
-          </div>
-        )}
+
       </div>
     </AppLayout>
   );

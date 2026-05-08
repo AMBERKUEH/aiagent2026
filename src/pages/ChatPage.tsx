@@ -1,5 +1,6 @@
 import AppLayout from "@/components/AppLayout";
 import { useState, useEffect, useRef, useCallback } from "react";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { rtdb } from "@/lib/firebase";
 import { normalizeSensorPayload } from "@/lib/sensors";
 import { searchAgricultureDocs } from "@/lib/supabase";
@@ -97,40 +98,42 @@ async function fetchRagContext(userMessage: string, lang: Lang): Promise<string>
   }
 }
 
-async function callGroq(
+async function callGemini(
   systemPrompt: string,
   conversationHistory: { role: string; content: string }[],
   fullUserMessage: string
 ): Promise<string> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error("Groq API key not configured");
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Gemini API key not configured");
 
-  const messages = [
-    { role: "system", content: systemPrompt },
-    ...conversationHistory.slice(-6),
-    { role: "user", content: fullUserMessage },
-  ];
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages,
-      max_tokens: 350,
-      temperature: 0.4,
-    }),
-  });
+    const chat = model.startChat({
+      history: [
+        {
+          role: "user",
+          parts: [{ text: `SYSTEM INSTRUCTION: ${systemPrompt}` }],
+        },
+        {
+          role: "model",
+          parts: [{ text: "Understood. I will act as SmartPaddy and follow those instructions." }],
+        },
+        ...conversationHistory.map(h => ({
+          role: h.role === "assistant" ? "model" : "user",
+          parts: [{ text: h.content }],
+        })),
+      ],
+    });
 
-  if (!response.ok) {
-    throw new Error(`Groq API error: ${response.status}`);
+    const result = await chat.sendMessage(fullUserMessage);
+    const response = await result.response;
+    return response.text();
+  } catch (error) {
+    console.error("Gemini call failed:", error);
+    throw error;
   }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
 }
 
 const ChatPage = () => {
@@ -236,9 +239,9 @@ const ChatPage = () => {
       let isOffline = false;
 
       try {
-        replyText = await callGroq(SYSTEM_PROMPT[lang], conversationHistory, fullUserMessage);
+        replyText = await callGemini(SYSTEM_PROMPT[lang], conversationHistory, fullUserMessage);
       } catch (err) {
-        console.error("Groq call failed:", err);
+        console.error("Gemini call failed:", err);
         replyText = lang === "BM"
           ? "Sambungan AI tidak tersedia sekarang, jadi SmartPaddy tidak akan mereka jawapan. Sila cuba lagi sebentar lagi."
           : "The AI connection is unavailable right now, so SmartPaddy will not fabricate an answer. Please try again shortly.";
@@ -286,21 +289,19 @@ const ChatPage = () => {
           <div className="flex items-center bg-surface-container-low rounded-full p-0.5 border border-outline-variant/20">
             <button
               onClick={() => handleLangChange("BM")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${
-                lang === "BM"
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "BM"
                   ? "bg-primary text-primary-foreground"
                   : "text-on-surface-variant hover:text-primary"
-              }`}
+                }`}
             >
               BM
             </button>
             <button
               onClick={() => handleLangChange("EN")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${
-                lang === "EN"
+              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "EN"
                   ? "bg-primary text-primary-foreground"
                   : "text-on-surface-variant hover:text-primary"
-              }`}
+                }`}
             >
               EN
             </button>
@@ -356,7 +357,7 @@ const ChatPage = () => {
           {isTyping && (
             <div className="flex gap-2.5 items-start">
               <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 text-lg">
-                  {EMOJI_HERB}
+                {EMOJI_HERB}
               </div>
               <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-surface-container-lowest border border-outline-variant/10 shadow-sm">
                 <div className="flex gap-1 items-center h-5">

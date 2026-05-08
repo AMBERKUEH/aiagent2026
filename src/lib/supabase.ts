@@ -33,19 +33,24 @@ export async function searchAgricultureDocs({
   url.searchParams.set("keywords", `cs.{${keyword}}`);
   url.searchParams.set("limit", String(limit));
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${supabaseAnonKey}`,
-    },
-  });
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+    });
 
-  if (!response.ok) {
-    throw new Error(`Supabase query failed with status ${response.status}`);
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = (await response.json()) as AgricultureDocRow[];
+    return data
+      .map((row) => row.chunk_text?.trim())
+      .filter((chunk): chunk is string => Boolean(chunk));
+  } catch (error) {
+    // Gracefully handle network errors (e.g., ERR_NAME_NOT_RESOLVED)
+    return [];
   }
-
-  const data = (await response.json()) as AgricultureDocRow[];
-  return data
-    .map((row) => row.chunk_text?.trim())
-    .filter((chunk): chunk is string => Boolean(chunk));
 }

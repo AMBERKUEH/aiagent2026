@@ -260,6 +260,23 @@ def detect_disease_alias(image: Optional[UploadFile] = File(default=None), file:
     return _predict_from_uploaded_image(image=image, file=file)
 
 
+@router.get("/market")
+def get_market_data() -> dict:
+    """Returns mock market intelligence data for the Command Center."""
+    return {
+        "status": "available",
+        "fertilizers": [
+            {"name": "Urea (Nitrogen)", "priceRM": 145.50, "trend": "up", "weeklyChangePct": 2.4},
+            {"name": "TSP (Phosphorus)", "priceRM": 182.00, "trend": "stable", "weeklyChangePct": 0.0},
+            {"name": "MOP (Potassium)", "priceRM": 168.20, "trend": "down", "weeklyChangePct": -1.5},
+            {"name": "NPK Compound 15-15-15", "priceRM": 195.00, "trend": "up", "weeklyChangePct": 1.2},
+        ],
+        "paddyPricePerKgRM": 1.75,
+        "demandLevel": "high",
+        "source": "Local Mock Market Feed",
+    }
+
+
 # Mount router at both / (for local dev, Vite proxy strips /api)
 # and /api (for production, no proxy)
 app.include_router(router)

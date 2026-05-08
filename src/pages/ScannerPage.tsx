@@ -1,5 +1,6 @@
 import AppLayout from "@/components/AppLayout";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 type ScanResult = {
   diseaseName: string;
@@ -347,72 +348,58 @@ const normalizeScanResponse = (payload: unknown, fileName: string): ScanResult =
   };
 };
 
-const enrichScanResultWithGroq = async (
+const enrichScanResultWithGemini = async (
   baseResult: ScanResult,
   payload: unknown,
   fileName: string
 ): Promise<Partial<ScanResult> | null> => {
   if (baseResult.backendStatus === "model_not_ready") return null;
 
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      temperature: 0.2,
-      max_tokens: 400,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an agronomy assistant. Return JSON only with keys: severity, spreadRisk, priority, impact, recommendation, checklist. recommendation must be 3 to 5 practical sentences (at least 40 words). checklist must be an array with 4 to 6 short actionable strings.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            file_name: fileName,
-            predicted_label: baseResult.diseaseName,
-            confidence_percent: baseResult.confidence,
-            possible_risks: baseResult.possibleRisks,
-            backend_status: baseResult.backendStatus,
-            backend_message: baseResult.backendMessage,
-            backend_payload: payload,
-          }),
-        },
-      ],
-    }),
-  });
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-flash-latest",
+    });
 
-  if (!response.ok) {
+    const systemPrompt = "You are an agronomy assistant. Return JSON only with keys: severity, spreadRisk, priority, impact, recommendation, checklist. recommendation must be 3 to 5 practical sentences (at least 40 words). checklist must be an array with 4 to 6 short actionable strings.";
+    
+    const userPrompt = JSON.stringify({
+      file_name: fileName,
+      predicted_label: baseResult.diseaseName,
+      confidence_percent: baseResult.confidence,
+      possible_risks: baseResult.possibleRisks,
+      backend_status: baseResult.backendStatus,
+      backend_message: baseResult.backendMessage,
+      backend_payload: payload,
+    });
+
+    const result = await model.generateContent(`${systemPrompt}\n\nInput Data: ${userPrompt}`);
+    const response = await result.response;
+    const text = response.text();
+    
+    const parsed = extractJsonObject(text);
+    if (!parsed) return null;
+
+    const checklist = asStringArray(parsed.checklist);
+
+    return {
+      severity: pickString(parsed, ["severity"], baseResult.severity),
+      spreadRisk: pickString(parsed, ["spreadRisk", "spread_risk"], baseResult.spreadRisk),
+      priority: pickString(parsed, ["priority"], baseResult.priority),
+      impact: pickString(parsed, ["impact"], baseResult.impact),
+      recommendation: ensureLongRecommendation(
+        pickString(parsed, ["recommendation"], baseResult.recommendation),
+        baseResult.diseaseName
+      ),
+      checklist: checklist.length > 0 ? checklist : baseResult.checklist,
+    };
+  } catch (error) {
+    console.error("Gemini enrichment failed:", error);
     return null;
   }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) return null;
-
-  const parsed = extractJsonObject(content);
-  if (!parsed) return null;
-
-  const checklist = asStringArray(parsed.checklist);
-
-  return {
-    severity: pickString(parsed, ["severity"], baseResult.severity),
-    spreadRisk: pickString(parsed, ["spreadRisk", "spread_risk"], baseResult.spreadRisk),
-    priority: pickString(parsed, ["priority"], baseResult.priority),
-    impact: pickString(parsed, ["impact"], baseResult.impact),
-    recommendation: ensureLongRecommendation(
-      pickString(parsed, ["recommendation"], baseResult.recommendation),
-      baseResult.diseaseName
-    ),
-    checklist: checklist.length > 0 ? checklist : baseResult.checklist,
-  };
 };
 
 const endpointCandidates = ["/api/cv/predict"];
@@ -538,16 +525,16 @@ const ScannerPage = () => {
         setAnalysisResult(withInference);
 
         try {
-          const groqFields = await enrichScanResultWithGroq(withInference, payload, file.name);
-          if (groqFields) {
+          const geminiFields = await enrichScanResultWithGemini(withInference, payload, file.name);
+          if (geminiFields) {
             setAnalysisResult((current) => ({
               ...current,
-              ...groqFields,
+              ...geminiFields,
               inferenceTime: `${elapsedMs} ms`,
             }));
           }
         } catch {
-          // Keep backend-derived values if Groq enrichment is unavailable.
+          // Keep backend-derived values if Gemini enrichment is unavailable.
         }
 
         setAnalysisError(null);

@@ -13,7 +13,7 @@ const BottomNav = () => {
   const location = useLocation();
 
   return (
-    <nav className="fixed bottom-0 w-full z-50 flex justify-around items-center px-4 pt-3 pb-6 glass-panel border-t border-outline-variant/15 shadow-[0_-8px_32px_rgba(25,28,29,0.04)] rounded-t-3xl">
+    <nav className="fixed bottom-0 w-full z-[1001] flex justify-around items-center px-4 pt-3 pb-6 glass-panel border-t border-outline-variant/15 shadow-[0_-8px_32px_rgba(25,28,29,0.04)] rounded-t-3xl">
       {navItems.map((item) => {
         const isActive = location.pathname === item.path;
         return (

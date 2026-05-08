@@ -4,7 +4,7 @@ const AppHeader = () => {
   const { user, logout } = useAuth();
 
   return (
-    <header className="fixed top-0 w-full z-50 bg-surface-container-lowest flex justify-between items-center px-6 py-4">
+    <header className="fixed top-0 w-full z-[1001] bg-surface-container-lowest flex justify-between items-center px-6 py-4">
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden">
           <img

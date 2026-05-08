@@ -35,20 +35,18 @@ function PhasePipeline({ currentPhase }: { currentPhase: OrchestratorPhase }) {
 
         return (
           <div key={p.key} className="flex items-center gap-1">
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-300 ${
-              isActive ? "bg-primary text-white shadow-lg scale-105 animate-pulse" :
-              isDone ? "bg-emerald-100 text-emerald-700" :
-              "bg-slate-100 text-slate-400"
-            }`}>
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-300 ${isActive ? "bg-primary text-white shadow-lg scale-105 animate-pulse" :
+                isDone ? "bg-emerald-100 text-emerald-700" :
+                  "bg-slate-100 text-slate-400"
+              }`}>
               <span className="material-symbols-outlined text-sm" style={isDone ? { fontVariationSettings: "'FILL' 1" } : {}}>
                 {isDone ? "check_circle" : isActive ? p.icon : p.icon}
               </span>
               <span className="hidden sm:inline">{p.label}</span>
             </div>
             {i < PHASES.length - 1 && (
-              <div className={`w-6 h-0.5 rounded transition-colors duration-500 ${
-                isDone ? "bg-emerald-300" : "bg-slate-200"
-              }`} />
+              <div className={`w-6 h-0.5 rounded transition-colors duration-500 ${isDone ? "bg-emerald-300" : "bg-slate-200"
+                }`} />
             )}
           </div>
         );
@@ -163,12 +161,11 @@ export default function CommandCenterPage() {
             {/* Agent status strip */}
             <div className="mt-4 flex flex-wrap gap-2">
               {ctx.agentStatuses.map(agent => (
-                <div key={agent.id} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
-                  agent.status === "running" ? "bg-primary/30 text-primary-foreground animate-pulse" :
-                  agent.status === "done" ? "bg-emerald-500/20 text-emerald-300" :
-                  agent.status === "error" ? "bg-red-500/20 text-red-300" :
-                  "bg-white/5 text-white/40"
-                }`}>
+                <div key={agent.id} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${agent.status === "running" ? "bg-primary/30 text-primary-foreground animate-pulse" :
+                    agent.status === "done" ? "bg-emerald-500/20 text-emerald-300" :
+                      agent.status === "error" ? "bg-red-500/20 text-red-300" :
+                        "bg-white/5 text-white/40"
+                  }`}>
                   <span className="material-symbols-outlined text-xs">{agent.icon}</span>
                   {agent.name}
                   {agent.durationMs !== null && agent.status === "done" && (
@@ -180,34 +177,8 @@ export default function CommandCenterPage() {
           </div>
         </section>
 
-        <section className="grid gap-3 sm:grid-cols-4">
-          <div className={`rounded-2xl border border-slate-200 p-4 shadow-sm ${statusTone.bg}`}>
-            <div className="flex items-center gap-2">
-              <span className={`material-symbols-outlined text-base ${statusTone.color}`}>{statusTone.icon}</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Farm Status</span>
-            </div>
-            <p className={`mt-2 font-headline text-lg font-bold ${statusTone.color}`}>{statusTone.label}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Overall Risk</p>
-            <p className="mt-2 font-headline text-2xl font-bold text-slate-900">
-              {riskProfile ? `${riskProfile.overallRisk}%` : "--"}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Yield Outlook</p>
-            <p className="mt-2 font-headline text-2xl font-bold text-slate-900">
-              {ctx.yieldEstimate ? `${ctx.yieldEstimate.adjustedPrediction} t/ha` : "--"}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Decision Goal</p>
-            <p className="mt-2 text-sm font-bold text-slate-900">{GOAL_PRESETS[goalType].label}</p>
-          </div>
-        </section>
-
         {/* ── Goal Selector + Run ──────────────────────────── */}
-        <section className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+        <section className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm mt-4">
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 block">Your Goal</label>
@@ -216,11 +187,10 @@ export default function CommandCenterPage() {
                   <button
                     key={key}
                     onClick={() => setGoalType(key)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 ${
-                      goalType === key
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 ${goalType === key
                         ? "bg-primary text-white shadow-md"
                         : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
-                    }`}
+                      }`}
                   >
                     <span className="material-symbols-outlined text-sm">{preset.icon}</span>
                     {preset.label}
@@ -228,7 +198,7 @@ export default function CommandCenterPage() {
                 ))}
               </div>
             </div>
-            <div className="flex items-end gap-3">
+            <div className="flex flex-wrap items-end gap-3">
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 block">Budget (RM)</label>
                 <input
@@ -241,7 +211,7 @@ export default function CommandCenterPage() {
               <button
                 onClick={handleRunCycle}
                 disabled={isRunning}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold transition-all hover:opacity-90 active:scale-95 disabled:opacity-50 shadow-lg shadow-primary/20"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold transition-all hover:opacity-90 active:scale-95 disabled:opacity-50 shadow-lg shadow-primary/20 h-[38px]"
               >
                 <span className={`material-symbols-outlined text-base ${isRunning ? "animate-spin" : ""}`}>
                   {isRunning ? "refresh" : "play_arrow"}
@@ -275,6 +245,28 @@ export default function CommandCenterPage() {
                 <p className="text-sm text-slate-600 leading-relaxed">
                   {recommendation.summary}
                 </p>
+                {recommendedScenario && (
+                  <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3 border-t border-slate-100 pt-4">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Scenario Profit</p>
+                      <p className="text-lg font-bold text-emerald-600">
+                        RM {recommendedScenario.projections.profitRM.mid.toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Expected Yield</p>
+                      <p className="text-lg font-bold text-slate-900">
+                        {recommendedScenario.projections.yieldTonPerHa.mid} t/ha
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Risk Level</p>
+                      <p className="text-lg font-bold text-slate-900">
+                        {recommendedScenario.projections.climateRiskScore}%
+                      </p>
+                    </div>
+                  </div>
+                )}
                 {recommendation.chain[0] && (
                   <div className="mt-3 rounded-xl bg-slate-50 p-3 border border-slate-100">
                     <p className="text-xs text-slate-700 font-medium">
@@ -285,8 +277,8 @@ export default function CommandCenterPage() {
                     </p>
                   </div>
                 )}
-                <div className="mt-3 flex items-center gap-2 text-xs text-primary font-semibold">
-                  View Scenario Comparison
+                <div className="mt-4 flex items-center gap-2 text-xs text-primary font-semibold">
+                  View Full Scenario Analysis
                   <span className="material-symbols-outlined text-sm">arrow_forward</span>
                 </div>
               </div>
@@ -420,44 +412,7 @@ export default function CommandCenterPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="font-headline text-base font-semibold text-slate-900">Quick Scenario Summary</h2>
-            <button
-              onClick={() => navigate("/scenarios")}
-              className="flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700"
-            >
-              Compare
-              <span className="material-symbols-outlined text-sm">arrow_forward</span>
-            </button>
-          </div>
-          {recommendedScenario ? (
-            <div className="grid gap-3 sm:grid-cols-4">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Recommended Path</p>
-                <p className="mt-1 font-headline text-lg font-bold text-slate-900">{recommendedScenario.name}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Yield</p>
-                <p className="mt-1 text-sm font-bold text-slate-900">{recommendedScenario.projections.yieldTonPerHa.mid} t/ha</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Profit</p>
-                <p className="mt-1 text-sm font-bold text-emerald-700">RM {recommendedScenario.projections.profitRM.mid.toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Risk</p>
-                <p className="mt-1 text-sm font-bold text-slate-900">{recommendedScenario.projections.climateRiskScore}%</p>
-              </div>
-            </div>
-          ) : (
-            <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
-              {hasRecommendationInputs
-                ? "Run an agent cycle to generate strategy pathways."
-                : "Scenario comparison will appear when the required real inputs are available."}
-            </p>
-          )}
-        </section>
+
 
         {/* ── Risk Overview ────────────────────────────────── */}
         {riskProfile && ctx.phase === "done" && (
@@ -519,25 +474,52 @@ export default function CommandCenterPage() {
           </section>
         )}
 
-        {/* ── Compact Sensor Strip ─────────────────────────── */}
+        {/* ── Live Sensor Perception ────────────────────────── */}
         {sensors && (
-          <section className="rounded-2xl bg-slate-50 border border-slate-200 px-5 py-3">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-sm text-emerald-500">sensors</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Live Sensors</span>
-                <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-emerald-500">sensors</span>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">Live Sensors</h3>
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse ml-1" />
               </div>
-              <div className="flex items-center gap-4 text-xs font-medium text-slate-600">
-                <span>{sensors.temperature ?? "--"} C</span>
-                <span className="text-slate-300">|</span>
-                <span>Soil {sensors.soilMoisture ?? "--"}%</span>
-                <span className="text-slate-300">|</span>
-                <span>Humidity {sensors.humidity ?? "--"}%</span>
-                <span className="text-slate-300">|</span>
-                <span>Light {sensors.lightIntensity ?? "--"} lux</span>
-                <span className="text-slate-300">|</span>
-                <span>Water {sensors.waterLevel ?? "--"} cm</span>
+              <span className="text-[10px] text-slate-400 font-medium">Auto-refresh: 1s</span>
+            </div>
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
+                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Humidity</span>
+                <div className="flex items-end gap-1">
+                  <span className="text-2xl font-bold text-slate-800">{sensors.humidity ?? "--"}</span>
+                  <span className="text-xs text-slate-400 mb-1 font-bold">%</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
+                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Light</span>
+                <div className="flex items-end gap-1">
+                  <span className="text-2xl font-bold text-slate-800">{sensors.lightIntensity ?? "--"}</span>
+                  <span className="text-xs text-slate-400 mb-1 font-bold">lux</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 transition-all hover:bg-white hover:shadow-md group">
+                <span className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold block mb-1">Soil Moisture</span>
+                <div className="flex items-end gap-1">
+                  <span className="text-2xl font-bold text-emerald-700">{sensors.soilMoisture ?? "--"}</span>
+                  <span className="text-xs text-emerald-500 mb-1 font-bold">%</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
+                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Temperature</span>
+                <div className="flex items-end gap-1">
+                  <span className="text-2xl font-bold text-slate-800">{sensors.temperature ?? "--"}</span>
+                  <span className="text-xs text-slate-400 mb-1 font-bold">°C</span>
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
+                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Water Level</span>
+                <div className="flex items-end gap-1">
+                  <span className="text-2xl font-bold text-slate-800">{sensors.waterLevel ?? "--"}</span>
+                  <span className="text-xs text-slate-400 mb-1 font-bold">cm</span>
+                </div>
               </div>
             </div>
           </section>
