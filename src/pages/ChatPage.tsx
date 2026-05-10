@@ -43,6 +43,21 @@ const PLACEHOLDERS: Record<Lang, string> = {
   EN: "Ask a farming question...",
 };
 
+const AGENT_MESSAGES: Record<Lang, { planning: string; simulating: string; routing: string; analyzing: string }> = {
+  BM: {
+    planning: "*(Planner Agent sedang merancang...)*",
+    simulating: "*(Menjalankan simulasi...)*",
+    routing: "Merancang Laluan...",
+    analyzing: "Menganalisis Konteks...",
+  },
+  EN: {
+    planning: "*(Planner Agent is routing...)*",
+    simulating: "*(Running simulation...)*",
+    routing: "Routing Request...",
+    analyzing: "Analyzing Context...",
+  },
+};
+
 function normalizeKeyword(word: string): string {
   return word
     .toLowerCase()
@@ -99,6 +114,50 @@ async function fetchRagContext(userMessage: string, lang: Lang): Promise<string>
     return allChunks.join("\n\n");
   } catch {
     return "";
+  }
+}
+
+async function plannerAgentRoute(text: string): Promise<{
+  activeAgents: string[];
+  isWhatIf: boolean;
+}> {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    return { activeAgents: ["Orchestrator Agent", "Economic Intelligence Agent", "Weather & Disaster Agent", "Yield Forecast Agent", "Crop Health Agent"], isWhatIf: false };
+  }
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+    const prompt = `
+You are the Planner Agent for SmartPaddy. Analyze the following farmer query and determine:
+1. Which specialized agents are needed to answer it.
+2. Whether this is a hypothetical "What if" or simulation query (e.g. "what happens if I delay harvest", "what if paddy price drops").
+
+Available Agents (return EXACT names):
+- "Weather & Disaster Agent": For questions about rain, flood, drought, weather forecasts.
+- "Crop Health Agent": For questions about diseases, pests, leaf discoloration, sensors.
+- "Economic Intelligence Agent": For questions about market prices, urea, fertilizer, profit.
+- "Yield Forecast Agent": For questions about harvest amount, tons per hectare, delay harvest impacts.
+- "Orchestrator Agent": For general strategy, overall farm status, or general farming advice.
+
+Return ONLY a JSON object with this exact structure, without any markdown formatting:
+{
+  "activeAgents": ["agent name 1", "agent name 2"],
+  "isWhatIf": true or false
+}
+
+Farmer query: "${text}"
+`;
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+    const plan = JSON.parse(cleanJson);
+    if (!Array.isArray(plan.activeAgents)) plan.activeAgents = ["Orchestrator Agent"];
+    return plan;
+  } catch (error) {
+    console.error("Planner agent failed:", error);
+    return { activeAgents: ["Orchestrator Agent", "Economic Intelligence Agent", "Weather & Disaster Agent", "Yield Forecast Agent", "Crop Health Agent"], isWhatIf: false };
   }
 }
 
@@ -291,25 +350,26 @@ const ChatPage = () => {
       const ragLine = ragContext ? `[AGRICULTURAL KNOWLEDGE:\n${ragContext}]` : "";
       const languageLine = `[RESPONSE LANGUAGE: ${getResponseLanguageLabel(lang)}. Reply only in ${getResponseLanguageLabel(lang)}.]`;
 
-      // 1. Detect Intent: Hypothetical "What-if" analysis
-      const lowerText = text.toLowerCase();
-      const isWhatIf = ["what if", "apa jadi jika", "delay", "tunda", "tangguh", "what happens if", "seandainya"].some(kw => lowerText.includes(kw));
+      // 1. Detect Intent using Planner Agent
+      setActiveAgents(["Planner Agent", AGENT_MESSAGES[lang].routing]);
+
+      const tempMsgId = nextId.current++;
+      setMessages((prev) => [...prev, {
+        id: tempMsgId,
+        role: "assistant",
+        text: AGENT_MESSAGES[lang].planning,
+        lang,
+        involvedAgents: ["Planner Agent"]
+      }]);
+
+      const plan = await plannerAgentRoute(text);
 
       let simulationContext = "";
-      const consultedAgents = new Set<string>();
+      const consultedAgents = new Set<string>(plan.activeAgents);
 
-      if (isWhatIf) {
-        setActiveAgents(["Scenario Simulation Agent", "Analyzing Context..."]);
-
-        // We set a temporary message first to show the "Analyzing..." state natively in the chat
-        const tempMsgId = nextId.current++;
-        setMessages((prev) => [...prev, {
-          id: tempMsgId,
-          role: "assistant",
-          text: "*(Menjalankan simulasi / Running simulation...)*",
-          lang,
-          involvedAgents: ["Scenario Simulation Agent", "Analyzing Context..."]
-        }]);
+      if (plan.isWhatIf) {
+        setActiveAgents(["Scenario Simulation Agent", AGENT_MESSAGES[lang].analyzing]);
+        setMessages(prev => prev.map(m => m.id === tempMsgId ? { ...m, text: AGENT_MESSAGES[lang].simulating, involvedAgents: ["Scenario Simulation Agent", AGENT_MESSAGES[lang].analyzing] } : m));
 
         // 2. Run Simulation: Call the Scenario Simulation Agent
         const sim = await runScenarioSimulation(text, farmCtx);
@@ -317,20 +377,23 @@ const ChatPage = () => {
         setActiveAgents(Array.from(consultedAgents)); // Show exactly who is working right now
 
         simulationContext = `[HYPOTHETICAL SIMULATION RESULT: Action="${text}", Est. Yield Impact=${sim.yieldImpact.toFixed(2)} t/ha, Weather Exposure Risk=${(sim.weatherRisk * 100).toFixed(0)}%, Est. Profit Change=RM ${sim.profitChange}. ${sim.isRealEngine ? sim.engineSummary : "(Fallback)"}]`;
-
-        // Remove the temporary message
-        setMessages((prev) => prev.filter(m => m.id !== tempMsgId));
       }
 
+      setMessages((prev) => prev.filter(m => m.id !== tempMsgId));
       setActiveAgents([]);
 
-      // Inject FarmContext intelligence
+      // Inject FarmContext intelligence (FILTERED by Planner)
       const agentLines: string[] = [];
       if (farmCtx.findings.length > 0) {
-        const topFindings = farmCtx.findings.filter(f => f.severity !== "positive").slice(0, 5);
-        if (topFindings.length > 0) {
+        const relevantFindings = farmCtx.findings.filter(f => 
+          f.severity === "critical" || 
+          plan.activeAgents.includes(`${f.agentName} Agent`) ||
+          plan.activeAgents.includes(f.agentName)
+        ).slice(0, 5);
+
+        if (relevantFindings.length > 0) {
           agentLines.push("[AGENT FINDINGS:");
-          for (const f of topFindings) {
+          for (const f of relevantFindings) {
             agentLines.push(`- ${f.agentName} (${f.confidence}%): ${f.finding}. ${f.detail}`);
             const displayAgent = f.agentName.endsWith("Agent") ? f.agentName : `${f.agentName} Agent`;
             consultedAgents.add(displayAgent);
@@ -338,21 +401,24 @@ const ChatPage = () => {
           agentLines.push("]");
         }
       }
-      if (farmCtx.recommendation) {
+      
+      if (farmCtx.recommendation && plan.activeAgents.includes("Orchestrator Agent")) {
         agentLines.push(`[RECOMMENDED STRATEGY: ${farmCtx.recommendation.strategyName}. ${farmCtx.recommendation.summary}]`);
         consultedAgents.add("Orchestrator Agent");
       }
-      if (farmCtx.riskProfile) {
+      
+      if (farmCtx.riskProfile && (plan.activeAgents.includes("Weather & Disaster Agent") || plan.activeAgents.includes("Crop Health Agent") || plan.activeAgents.includes("Economic Intelligence Agent"))) {
         const rp = farmCtx.riskProfile;
         agentLines.push(`[RISK PROFILE: Overall=${rp.overallRisk}%, Flood=${rp.floodRisk}%, Drought=${rp.droughtRisk}%, Disease=${rp.diseaseRisk}%, Market=${rp.marketRisk}%, Trend=${rp.riskTrend}]`);
-        consultedAgents.add("Weather & Disaster Agent");
       }
-      if (farmCtx.yieldEstimate) {
+      
+      if (farmCtx.yieldEstimate && plan.activeAgents.includes("Yield Forecast Agent")) {
         const ye = farmCtx.yieldEstimate;
         agentLines.push(`[YIELD ESTIMATE: ${ye.adjustedPrediction} t/ha (range: ${ye.confidenceBand.low}-${ye.confidenceBand.high}), model confidence: ${ye.modelConfidence}%]`);
         consultedAgents.add("Yield Forecast Agent");
       }
-      if (farmCtx.scenarioTree && farmCtx.scenarioTree.scenarios.length > 0) {
+      
+      if (farmCtx.scenarioTree && farmCtx.scenarioTree.scenarios.length > 0 && plan.activeAgents.includes("Orchestrator Agent")) {
         agentLines.push("[SCENARIO COMPARISON:");
         for (const s of farmCtx.scenarioTree.scenarios) {
           agentLines.push(`- ${s.name}${s.isRecommended ? " (RECOMMENDED)" : ""}: yield=${s.projections.yieldTonPerHa.mid}t/ha, profit=RM${s.projections.profitRM.mid}, risk=${s.projections.climateRiskScore}%, cost=RM${s.projections.operationalCostRM}`);
