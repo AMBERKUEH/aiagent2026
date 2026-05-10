@@ -332,7 +332,8 @@ const ChatPage = () => {
           agentLines.push("[AGENT FINDINGS:");
           for (const f of topFindings) {
             agentLines.push(`- ${f.agentName} (${f.confidence}%): ${f.finding}. ${f.detail}`);
-            consultedAgents.add(f.agentName);
+            const displayAgent = f.agentName.endsWith("Agent") ? f.agentName : `${f.agentName} Agent`;
+            consultedAgents.add(displayAgent);
           }
           agentLines.push("]");
         }

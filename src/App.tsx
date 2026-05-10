@@ -11,6 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import ScenarioExplorerPage from "./pages/ScenarioExplorerPage";
 import ChatPage from "./pages/ChatPage";
 import MapPage from "./pages/MapPage";
+import ScannerPage from "./pages/ScannerPage";
 import ProfilePage from "./pages/ProfilePage";
 import NotFound from "./pages/NotFound";
 
@@ -35,6 +36,7 @@ const App = () => (
               <Route path="/scenarios" element={<ProtectedRoute><ScenarioExplorerPage /></ProtectedRoute>} />
               <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
               <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
+              <Route path="/scanner" element={<ProtectedRoute><ScannerPage /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
