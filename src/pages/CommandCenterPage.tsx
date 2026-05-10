@@ -11,6 +11,7 @@ import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 import { GOAL_PRESETS, type GoalType, type UserGoal, type FindingSeverity, type OrchestratorPhase } from "@/lib/agents/types";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ── Phase pipeline ──────────────────────────────────────────
 
@@ -123,7 +124,7 @@ export default function CommandCenterPage() {
 
   return (
     <AppLayout>
-      <div className="mx-auto max-w-5xl space-y-5">
+      <div className="mx-auto max-w-6xl space-y-6 pb-12">
 
         {/* ── Agent Header + Pipeline ──────────────────────── */}
         <section className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 text-white relative overflow-hidden">
@@ -182,12 +183,12 @@ export default function CommandCenterPage() {
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[200px]">
               <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2 block">Your Goal</label>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
                 {(Object.entries(GOAL_PRESETS) as [GoalType, typeof GOAL_PRESETS[GoalType]][]).map(([key, preset]) => (
                   <button
                     key={key}
                     onClick={() => setGoalType(key)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 ${goalType === key
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all active:scale-95 ${goalType === key
                         ? "bg-primary text-white shadow-md"
                         : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200"
                       }`}
@@ -418,23 +419,87 @@ export default function CommandCenterPage() {
         {riskProfile && ctx.phase === "done" && (
           <section className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {[
-              { label: "Overall", value: riskProfile.overallRisk, color: riskProfile.overallRisk > 60 ? "#ef4444" : riskProfile.overallRisk > 30 ? "#f59e0b" : "#22c55e", icon: "shield" },
-              { label: "Flood", value: riskProfile.floodRisk, color: "#3b82f6", icon: "flood" },
-              { label: "Drought", value: riskProfile.droughtRisk, color: "#f59e0b", icon: "local_fire_department" },
-              { label: "Disease", value: riskProfile.diseaseRisk, color: "#ef4444", icon: "coronavirus" },
-              { label: "Market", value: riskProfile.marketRisk, color: "#8b5cf6", icon: "trending_up" },
-            ].map(r => (
-              <div key={r.label} className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="material-symbols-outlined text-sm" style={{ color: r.color }}>{r.icon}</span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{r.label}</span>
-                </div>
-                <p className="font-headline text-2xl font-bold text-slate-900">{r.value}<span className="text-sm text-slate-400">%</span></p>
-                <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all duration-700" style={{ width: `${r.value}%`, background: r.color }} />
-                </div>
-              </div>
-            ))}
+              {
+                label: "Overall",
+                value: riskProfile.overallRisk,
+                color: riskProfile.overallRisk > 60 ? "#ef4444" : riskProfile.overallRisk > 30 ? "#f59e0b" : "#22c55e",
+                icon: "shield",
+                meaning: "The aggregated threat level across all farm signals.",
+                interpretation: "Below 30% is Optimal (Good). 30-60% requires monitoring. Above 60% indicates a critical threat requiring immediate action."
+              },
+              {
+                label: "Flood",
+                value: riskProfile.floodRisk,
+                color: "#3b82f6",
+                icon: "flood",
+                meaning: "Probability of field inundation based on rain forecast and soil saturation.",
+                interpretation: "Low (0-20%) is safe. High values suggest you should check drainage and bunding."
+              },
+              {
+                label: "Drought",
+                value: riskProfile.droughtRisk,
+                color: "#f59e0b",
+                icon: "local_fire_department",
+                meaning: "Risk of water stress due to high evaporation and low water input.",
+                interpretation: "Optimal is below 20%. Higher values indicate your crop might need supplemental irrigation."
+              },
+              {
+                label: "Disease",
+                value: riskProfile.diseaseRisk,
+                color: "#ef4444",
+                icon: "coronavirus",
+                meaning: "Likelihood of pest or fungal outbreaks from scans and weather conditions.",
+                interpretation: "0-15% is healthy. Spikes here suggest you should schedule a preventive spray."
+              },
+              {
+                label: "Market",
+                value: riskProfile.marketRisk,
+                color: "#8b5cf6",
+                icon: "trending_up",
+                meaning: "Potential impact of price drops or input cost spikes on your profit.",
+                interpretation: "Low risk means stable profits. High risk suggests locking in prices early."
+              },
+            ].map(r => {
+              const interpretation = r.value <= 20 
+                ? `Currently ${r.value}%, which is Optimal (Good). No immediate action is required.`
+                : r.value <= 50 
+                ? `Currently ${r.value}%, which is Moderate. You should monitor sensor trends closely.`
+                : `Currently ${r.value}%, which is High. Immediate intervention or strategy adjustment is recommended.`;
+
+              return (
+                <Tooltip key={r.label} delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm flex flex-col cursor-help transition-all hover:border-primary/30 hover:shadow-md group">
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <span className="material-symbols-outlined text-sm transition-transform group-hover:scale-110" style={{ color: r.color }}>{r.icon}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{r.label}</span>
+                      </div>
+                      <p className="font-headline text-2xl font-bold text-slate-900 leading-none">{r.value}<span className="text-sm text-slate-400 font-normal">%</span></p>
+                      <div className="mt-auto pt-4">
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${r.value}%`, background: r.color }} />
+                        </div>
+                      </div>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-[240px] p-4 bg-white/90 backdrop-blur-md text-slate-900 border-slate-200 shadow-2xl rounded-2xl">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="material-symbols-outlined text-sm" style={{ color: r.color }}>{r.icon}</span>
+                        <p className="font-bold text-xs uppercase tracking-wider">{r.label} Risk</p>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">{r.meaning}</p>
+                      <div className="pt-2 border-t border-slate-100">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">AI Assessment</p>
+                        <p className={`text-[11px] leading-relaxed font-medium ${r.value > 50 ? "text-red-500" : r.value > 20 ? "text-amber-500" : "text-emerald-600"}`}>
+                          {interpretation}
+                        </p>
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
           </section>
         )}
 
@@ -477,7 +542,7 @@ export default function CommandCenterPage() {
         {/* ── Live Sensor Perception ────────────────────────── */}
         {sensors && (
           <section className="rounded-2xl bg-white border border-slate-200 p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-emerald-500">sensors</span>
                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">Live Sensors</h3>
@@ -486,41 +551,68 @@ export default function CommandCenterPage() {
               <span className="text-[10px] text-slate-400 font-medium">Auto-refresh: 1s</span>
             </div>
             <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
-                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Humidity</span>
-                <div className="flex items-end gap-1">
-                  <span className="text-2xl font-bold text-slate-800">{sensors.humidity ?? "--"}</span>
-                  <span className="text-xs text-slate-400 mb-1 font-bold">%</span>
-                </div>
-              </div>
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
-                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Light</span>
-                <div className="flex items-end gap-1">
-                  <span className="text-2xl font-bold text-slate-800">{sensors.lightIntensity ?? "--"}</span>
-                  <span className="text-xs text-slate-400 mb-1 font-bold">lux</span>
-                </div>
-              </div>
-              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 transition-all hover:bg-white hover:shadow-md group">
-                <span className="text-[10px] uppercase tracking-widest text-emerald-600 font-bold block mb-1">Soil Moisture</span>
-                <div className="flex items-end gap-1">
-                  <span className="text-2xl font-bold text-emerald-700">{sensors.soilMoisture ?? "--"}</span>
-                  <span className="text-xs text-emerald-500 mb-1 font-bold">%</span>
-                </div>
-              </div>
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
-                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Temperature</span>
-                <div className="flex items-end gap-1">
-                  <span className="text-2xl font-bold text-slate-800">{sensors.temperature ?? "--"}</span>
-                  <span className="text-xs text-slate-400 mb-1 font-bold">°C</span>
-                </div>
-              </div>
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 transition-all hover:bg-white hover:shadow-md group">
-                <span className="text-[10px] uppercase tracking-widest text-slate-400 font-bold block mb-1 group-hover:text-primary transition-colors">Water Level</span>
-                <div className="flex items-end gap-1">
-                  <span className="text-2xl font-bold text-slate-800">{sensors.waterLevel ?? "--"}</span>
-                  <span className="text-xs text-slate-400 mb-1 font-bold">cm</span>
-                </div>
-              </div>
+              {[
+                { id: "humidity", label: "Humidity", unit: "%", icon: "humidity_percentage", min: 70, max: 85, meaning: "Air water vapor level. High humidity (>85%) increases fungal risk." },
+                { id: "lightIntensity", label: "Light", unit: "lux", icon: "wb_sunny", min: 2000, max: 100000, meaning: "Solar intensity. Essential for growth; very high values might lead to heat stress." },
+                { id: "soilMoisture", label: "Soil Moisture", unit: "%", icon: "water_drop", min: 65, max: 80, meaning: "Root zone water content. Paddy needs >65% for optimal growth." },
+                { id: "temperature", label: "Temperature", unit: "°C", icon: "thermostat", min: 25, max: 35, meaning: "Ambient air temp. Paddy grows best between 25°C and 35°C." },
+                { id: "waterLevel", label: "Water Level", unit: "cm", icon: "waves", min: 5, max: 15, meaning: "Water depth in plot. Keep between 5-15cm for optimal weed control." },
+              ].map(cfg => {
+                const val = (sensors as any)[cfg.id];
+                const isOptimal = val === null || (val >= cfg.min && val <= cfg.max);
+                const isCritical = val !== null && (val < cfg.min * 0.8 || val > cfg.max * 1.2);
+                
+                const statusColor = isCritical ? "text-red-600 bg-red-50 border-red-100" : isOptimal ? "text-emerald-600 bg-emerald-50 border-emerald-100" : "text-amber-600 bg-amber-50 border-amber-100";
+                const dotColor = isCritical ? "bg-red-500" : isOptimal ? "bg-emerald-500" : "bg-amber-500";
+                const interpretation = isCritical 
+                   ? `Currently ${val}${cfg.unit}, which is dangerously outside the ideal range.` 
+                   : isOptimal 
+                   ? `Currently ${val}${cfg.unit}, which is well within the optimal range.` 
+                   : `Currently ${val}${cfg.unit}, which is slightly outside the ideal range; monitor closely.`;
+
+                return (
+                  <Tooltip key={cfg.id} delayDuration={0}>
+                    <TooltipTrigger asChild>
+                      <div className={`relative p-4 rounded-2xl border transition-all hover:shadow-md cursor-help group ${isCritical ? "border-red-200 bg-white" : isOptimal ? "border-emerald-100 bg-white" : "border-amber-100 bg-white"}`}>
+                        {isCritical && (
+                          <div className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 shadow-sm animate-bounce">
+                            <span className="material-symbols-outlined text-[10px] text-white font-bold">priority_high</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-[10px] uppercase tracking-widest font-bold ${isCritical ? "text-red-500" : isOptimal ? "text-emerald-600" : "text-amber-600"}`}>{cfg.label}</span>
+                          <div className={`h-1.5 w-1.5 rounded-full ${dotColor} ${isCritical ? "animate-pulse" : ""}`} />
+                        </div>
+                        <div className="flex items-end gap-1">
+                          <span className="text-2xl font-bold text-slate-800 leading-none">{val ?? "--"}</span>
+                          <span className="text-xs text-slate-400 font-bold mb-0.5">{cfg.unit}</span>
+                        </div>
+                        <div className="mt-2 flex items-center gap-1">
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-md ${statusColor}`}>
+                            {isCritical ? "Care Needed" : isOptimal ? "Optimal" : "Monitor"}
+                          </span>
+                        </div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px] p-4 bg-white/90 backdrop-blur-md text-slate-900 border-slate-200 shadow-2xl rounded-2xl">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-sm text-primary">{cfg.icon}</span>
+                          <p className="font-bold text-xs uppercase tracking-wider">{cfg.label}</p>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed">{cfg.meaning}</p>
+                        <div className="pt-2 border-t border-slate-100">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">AI Assessment</p>
+                          <p className={`text-[11px] leading-relaxed font-medium ${isCritical ? "text-red-500" : isOptimal ? "text-emerald-600" : "text-amber-600"}`}>
+                            {interpretation}
+                          </p>
+                          <p className="mt-1 text-[10px] text-slate-400 font-medium">Target: {cfg.min} - {cfg.max} {cfg.unit}</p>
+                        </div>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
             </div>
           </section>
         )}

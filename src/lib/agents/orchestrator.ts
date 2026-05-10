@@ -268,8 +268,11 @@ export class Orchestrator {
         );
         this.context.scenarioTree = scenarioTree;
 
+        const synthStart = Date.now();
+        this.setAgentStatus("synthesizer", "running");
         const recommendation = await buildExplainableRecommendation(scenarioTree, allFindings, this.context.userGoal);
         this.context.recommendation = recommendation;
+        this.setAgentStatus("synthesizer", "done", Date.now() - synthStart);
       }
 
       this.context.timestamp = new Date().toISOString();

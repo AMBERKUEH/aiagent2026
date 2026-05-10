@@ -137,6 +137,14 @@ export type GoalType =
   | "optimize_water"
   | "balanced";
 
+export type AgentId =
+  | "field-monitor"
+  | "weather-disaster"
+  | "crop-health"
+  | "economic-intel"
+  | "yield-forecast"
+  | "synthesizer";
+
 export interface UserGoal {
   type: GoalType;
   label: string;
@@ -145,12 +153,12 @@ export interface UserGoal {
 }
 
 export const GOAL_PRESETS: Record<GoalType, { label: string; labelBM: string; icon: string }> = {
-  maximize_yield:  { label: "Maximize Yield",          labelBM: "Maksimumkan Hasil",     icon: "trending_up" },
-  maximize_profit: { label: "Maximize Profit",         labelBM: "Maksimumkan Keuntungan", icon: "payments" },
-  minimize_risk:   { label: "Minimize Climate Risk",   labelBM: "Kurangkan Risiko Iklim", icon: "shield" },
-  minimize_cost:   { label: "Minimize Cost",           labelBM: "Kurangkan Kos",          icon: "savings" },
-  optimize_water:  { label: "Optimize Water Usage",    labelBM: "Optimumkan Penggunaan Air", icon: "water_drop" },
-  balanced:        { label: "Balanced Strategy",       labelBM: "Strategi Seimbang",      icon: "balance" },
+  maximize_yield: { label: "Maximize Yield", labelBM: "Maksimumkan Hasil", icon: "trending_up" },
+  maximize_profit: { label: "Maximize Profit", labelBM: "Maksimumkan Keuntungan", icon: "payments" },
+  minimize_risk: { label: "Minimize Climate Risk", labelBM: "Kurangkan Risiko Iklim", icon: "shield" },
+  minimize_cost: { label: "Minimize Cost", labelBM: "Kurangkan Kos", icon: "savings" },
+  optimize_water: { label: "Optimize Water Usage", labelBM: "Optimumkan Penggunaan Air", icon: "water_drop" },
+  balanced: { label: "Balanced Strategy", labelBM: "Strategi Seimbang", icon: "balance" },
 };
 
 // ── Scenario Tree ───────────────────────────────────────────
@@ -299,11 +307,12 @@ export function createEmptyFarmContext(): FarmContext {
     cycleId: crypto.randomUUID(),
     phase: "idle",
     agentStatuses: [
-      { id: "field-monitor",    name: "Field Monitor",         icon: "sensors",               status: "idle", lastRunAt: null, durationMs: null },
-      { id: "weather-disaster", name: "Weather & Disaster",    icon: "thunderstorm",          status: "idle", lastRunAt: null, durationMs: null },
-      { id: "crop-health",      name: "Crop Health",            icon: "local_florist",         status: "idle", lastRunAt: null, durationMs: null },
-      { id: "economic-intel",   name: "Economic Intelligence", icon: "account_balance",       status: "idle", lastRunAt: null, durationMs: null },
-      { id: "yield-forecast",   name: "Yield Forecast",        icon: "analytics",             status: "idle", lastRunAt: null, durationMs: null },
+      { id: "field-monitor", name: "Field Monitor", icon: "sensors", status: "idle", lastRunAt: null, durationMs: null },
+      { id: "weather-disaster", name: "Weather & Disaster", icon: "thunderstorm", status: "idle", lastRunAt: null, durationMs: null },
+      { id: "crop-health", name: "Crop Health", icon: "local_florist", status: "idle", lastRunAt: null, durationMs: null },
+      { id: "economic-intel", name: "Economic Intelligence", icon: "account_balance", status: "idle", lastRunAt: null, durationMs: null },
+      { id: "yield-forecast", name: "Yield Forecast", icon: "analytics", status: "idle", lastRunAt: null, durationMs: null },
+      { id: "synthesizer", name: "Synthesizer", icon: "hub", status: "idle", lastRunAt: null, durationMs: null },
     ],
     perception: null,
     findings: [],

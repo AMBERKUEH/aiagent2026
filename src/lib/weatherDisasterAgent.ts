@@ -450,58 +450,11 @@ function runThresholds(
     });
   }
 
-  // ── MONSOON checks ──────────────────────────────────────
-  const monsoonSignals: string[] = [];
-  let monsoonConfidence = 50;
-
-  if (monsoon.front_days_away <= 5) {
-    monsoonSignals.push(`monsoon front ${monsoon.front_days_away} days away`);
-    monsoonConfidence += 20;
-  }
-  if (monsoon.sw_wind_detected) {
-    monsoonSignals.push(`SW wind shift detected (${windCardinal(weather.wind_direction_deg)} @ ${weather.wind_speed_kmh} km/h)`);
-    monsoonConfidence += 15;
-  }
-  if (monsoon.humidity_3day_above_75) {
-    monsoonSignals.push(`3-day avg humidity ${weather.humidity_3day_avg}% (>75% threshold)`);
-    monsoonConfidence += 15;
-  }
-
-  if (monsoonSignals.length >= 2) {
-    const conf = Math.min(93, monsoonConfidence - stalePenalty);
-    const sev: AlertSeverity = monsoonSignals.length === 3 ? "high" : "medium";
-    alerts.push({
-      type: "MONSOON",
-      severity: sev,
-      zone: `${zone.name} Zone`,
-      timeframe: "5-day window",
-      signal: monsoonSignals.join(", "),
-      prediction: "Monsoon onset imminent. Expect sustained heavy rainfall within forecast window.",
-      action: "Prepare drainage. Check bunding. Schedule pest scouting post-onset.",
-      confidence: conf,
-      sources: [monsoon.source, weather.source],
-      spatial_zone_id: zone.spatial_zone_id,
-      stale_data: isStale,
-      low_confidence_critical: sev === "critical" && conf < 70,
-    });
-  }
+  // (MONSOON check moved to regional level to avoid duplication)
 
   // ── CLEAR (no threats) ──────────────────────────────────
-  if (alerts.length === 0) {
-    alerts.push({
-      type: "CLEAR",
-      severity: "low",
-      zone: `${zone.name} Zone`,
-      timeframe: "48 hours",
-      signal: `Rain ${weather.rainfall_48h_mm}mm${soil ? `, soil ${soil.moisture_pct}%` : ""}${spi ? `, SPI ${spi.spi_value}` : ""}${ndvi ? `, NDVI ${ndvi.current_ndvi}` : ""}`,
-      prediction: "No active weather threats detected from the available real inputs.",
-      action: "No active threats. Next scheduled check in 6 hours.",
-      confidence: 90 - stalePenalty,
-      sources: [weather.source, ndvi?.source].filter((source): source is string => Boolean(source)),
-      spatial_zone_id: zone.spatial_zone_id,
-      stale_data: isStale,
-    });
-  }
+
+  // (CLEAR check moved to regional level to avoid duplication)
 
   return alerts;
 }
@@ -560,7 +513,68 @@ export async function runWeatherDisasterAgent(
     allAlerts.push(...zoneAlerts);
   }
 
-  // 4. Hard rule: critical alerts always fire
+  // 4. Regional MONSOON check (Deduplicated)
+  const isStale = weather.data_age_hours > 3;
+  const stalePenalty = isStale ? 15 : 0;
+  const monsoonSignals: string[] = [];
+  let monsoonConfidence = 50;
+
+  if (monsoon.front_days_away <= 5) {
+    monsoonSignals.push(`monsoon front ${monsoon.front_days_away} days away`);
+    monsoonConfidence += 20;
+  }
+  if (monsoon.sw_wind_detected) {
+    monsoonSignals.push(`SW wind shift detected (${windCardinal(weather.wind_direction_deg)} @ ${weather.wind_speed_kmh} km/h)`);
+    monsoonConfidence += 15;
+  }
+  if (monsoon.humidity_3day_above_75) {
+    monsoonSignals.push(`3-day avg humidity ${weather.humidity_3day_avg}% (>75% threshold)`);
+    monsoonConfidence += 15;
+  }
+
+  if (monsoonSignals.length >= 2) {
+    const conf = Math.min(93, monsoonConfidence - stalePenalty);
+    const sev: AlertSeverity = monsoonSignals.length === 3 ? "high" : "medium";
+    allAlerts.push({
+      type: "MONSOON",
+      severity: sev,
+      zone: "All Zones (Regional)",
+      timeframe: "5-day window",
+      signal: monsoonSignals.join(", "),
+      prediction: "Monsoon onset imminent. Expect sustained heavy rainfall across the farm region.",
+      action: "Prepare drainage. Check bunding. Schedule pest scouting post-onset.",
+      confidence: conf,
+      sources: [monsoon.source, weather.source],
+      spatial_zone_id: "all_zones",
+      stale_data: isStale,
+      low_confidence_critical: sev === "critical" && conf < 70,
+    });
+  }
+
+  // Remove "CLEAR" if we have a regional monsoon alert
+  if (allAlerts.some(a => a.type === "MONSOON")) {
+    const clearIndex = allAlerts.findIndex(a => a.type === "CLEAR");
+    if (clearIndex !== -1) allAlerts.splice(clearIndex, 1);
+  }
+
+  // 5. Regional CLEAR check (Deduplicated)
+  if (allAlerts.length === 0) {
+    allAlerts.push({
+      type: "CLEAR",
+      severity: "low",
+      zone: "All Zones",
+      timeframe: "48 hours",
+      signal: `Rain ${weather.rainfall_48h_mm}mm, Temp ${weather.temperature_max_c}°C`,
+      prediction: "No active weather threats detected across any zones.",
+      action: "No active threats. Next scheduled check in 6 hours.",
+      confidence: 90 - stalePenalty,
+      sources: [weather.source],
+      spatial_zone_id: "all_zones",
+      stale_data: isStale,
+    });
+  }
+
+  // 6. Hard rule: critical alerts always fire
   // (already enforced — thresholds fire regardless of confidence)
 
   // 5. Build result

@@ -34,8 +34,8 @@ const SYSTEM_PROMPT: Record<Lang, string> = {
 };
 
 const QUICK_REPLIES: Record<Lang, string[]> = {
-  BM: ["Apa jadi jika harga padi RM 2.00?", "Kenapa strategi ini disyorkan?", "Bila nak siram padi?", "Berapa harga baja urea?"],
-  EN: ["What if paddy price is RM 2.00?", "Why is this strategy recommended?", "When should I irrigate?", "What is the price of urea fertilizer?"],
+  BM: ["Apa jadi jika saya menuai hari ini?", "Kenapa strategi ini disyorkan?", "Bila nak siram padi?", "Berapa harga baja urea?"],
+  EN: ["What if I crop today?", "Why is this strategy recommended?", "When should I irrigate?", "What is the price of urea fertilizer?"],
 };
 
 const PLACEHOLDERS: Record<Lang, string> = {
