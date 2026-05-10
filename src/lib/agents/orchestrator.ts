@@ -35,9 +35,33 @@ export class Orchestrator {
   private listeners: OrchestratorListener[] = [];
   private latestSensors: NormalizedSensors | null = null;
   private latestDiseases: DiseaseResult[] = [];
+  private isMockDisasterActive = false;
 
   constructor() {
     this.context = createEmptyFarmContext();
+    // Expose to window for manual testing of Synthesizer Agent
+    if (typeof window !== "undefined") {
+      (window as any).triggerDisaster = (active: boolean = true) => {
+        this.triggerMockDisaster(active);
+      };
+      (window as any).triggerDisease = (label: string, confidence: number = 0.85) => {
+        this.updateDiseases([{
+          label,
+          confidence,
+          zone: "North Zone",
+          source: "Manual Console Trigger",
+          timestamp: new Date().toISOString()
+        }]);
+        this.runFullCycle();
+        console.log(`Simulated ${label} detection at ${confidence * 100}%. Dashboard updating...`);
+      };
+    }
+  }
+
+  // Manual trigger for testing Synthesizer Agent
+  triggerMockDisaster(active: boolean = true) {
+    this.isMockDisasterActive = active;
+    this.runFullCycle();
   }
 
   // Subscribe to context updates
@@ -183,6 +207,27 @@ export class Orchestrator {
       allFindings.push(...yfFindings);
       this.setAgentStatus("yield-forecast", "done", Date.now() - yfStart);
 
+      // ── MOCK DISASTER INJECTION (for testing Synthesizer Agent) ──
+      if (this.isMockDisasterActive) {
+        allFindings.push({
+          id: "mock-disaster-" + Date.now(),
+          agentId: "weather-disaster",
+          agentName: "Weather & Disaster",
+          severity: "critical",
+          finding: "CRITICAL: Monsoon surge detected. Extreme flood risk expected.",
+          detail: "Flash flooding imminent in next 12 hours. Immediate drainage reinforcement required to protect fertilizer investment.",
+          confidence: 98,
+          dataSources: ["Manual Test Trigger"],
+          timestamp: new Date().toISOString(),
+          impactVector: {
+            yieldImpact: -35,
+            costImpactRM: 500,
+            riskChange: 0.85,
+            sustainabilityImpact: -20,
+          },
+        });
+      }
+
       this.context.findings = allFindings;
       this.context.yieldEstimate = yieldEstimate;
       this.emit();
@@ -223,7 +268,7 @@ export class Orchestrator {
         );
         this.context.scenarioTree = scenarioTree;
 
-        const recommendation = buildExplainableRecommendation(scenarioTree, allFindings);
+        const recommendation = await buildExplainableRecommendation(scenarioTree, allFindings, this.context.userGoal);
         this.context.recommendation = recommendation;
       }
 

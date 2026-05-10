@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateScenarioTree } from "./scenarioEngine";
+import { generateScenarioTree, buildExplainableRecommendation } from "./scenarioEngine";
 import type {
   AgentFinding,
   PerceptionResult,
@@ -151,5 +151,18 @@ describe("generateScenarioTree", () => {
     expect(aggressive).toBeDefined();
     expect(aggressive?.projections.operationalCostRM).toBeGreaterThan(300);
     expect(aggressive?.goalAlignmentScore).toBeLessThan(75);
+  });
+});
+
+describe("buildExplainableRecommendation", () => {
+  it("generates a recommendation with synthesized reasoning", async () => {
+    const tree = generateScenarioTree(perception, findings, riskProfile, yieldEstimate, goal("balanced"));
+    const rec = await buildExplainableRecommendation(tree, findings, goal("balanced"));
+
+    expect(rec).not.toBeNull();
+    expect(rec?.strategyId).toBe("scenario-balanced");
+    expect(rec?.summary).toContain("Balanced");
+    expect(rec?.summaryBM).toBeDefined();
+    expect(rec?.contributors.length).toBeGreaterThan(0);
   });
 });

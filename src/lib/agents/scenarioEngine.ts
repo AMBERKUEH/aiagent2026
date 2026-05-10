@@ -6,6 +6,8 @@
 // agronomic models, and ranks them against the user's goal.
 // ============================================================
 
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
 import type {
   AgentFinding,
   ExplainableRecommendation,
@@ -390,12 +392,22 @@ export function generateScenarioTree(
   };
 }
 
+// ── Global cache for synthesis to avoid quota issues ────────
+let lastFindingsHash = "";
+let cachedSummaryEN = "";
+let cachedSummaryBM = "";
+
+function getFindingsHash(findings: AgentFinding[], goal?: UserGoal): string {
+  return JSON.stringify(findings.map((f) => f.agentId + f.finding)) + (goal?.type ?? "");
+}
+
 // ── Explainable recommendation builder ──────────────────────
 
-export function buildExplainableRecommendation(
+export async function buildExplainableRecommendation(
   tree: ScenarioTree,
   findings: AgentFinding[],
-): ExplainableRecommendation | null {
+  userGoal?: UserGoal,
+): Promise<ExplainableRecommendation | null> {
   const recommended = tree.scenarios.find(s => s.isRecommended);
   if (!recommended) return null;
 
@@ -447,14 +459,65 @@ export function buildExplainableRecommendation(
       };
     });
 
-  const summaryBM = `Strategi ${recommended.nameBM} disyorkan berdasarkan keadaan semasa. Anggaran hasil: ${recommended.projections.yieldTonPerHa.mid} tan/hektar. Kos operasi: RM ${recommended.projections.operationalCostRM}.`;
+  let finalSummary = `${recommended.name} strategy is recommended based on current conditions. Projected yield: ${recommended.projections.yieldTonPerHa.mid} t/ha. Operating cost: RM ${recommended.projections.operationalCostRM}. Goal alignment: ${recommended.goalAlignmentScore}/100.`;
+  let finalSummaryBM = `Strategi ${recommended.nameBM} disyorkan berdasarkan keadaan semasa. Anggaran hasil: ${recommended.projections.yieldTonPerHa.mid} tan/hektar. Kos operasi: RM ${recommended.projections.operationalCostRM}.`;
+
+  // LLM-based Synthesizer Agent Debate
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const currentHash = getFindingsHash(findings, userGoal);
+
+  if (apiKey && topFindings.length > 0) {
+    // Check cache first to save tokens/quota
+    if (currentHash === lastFindingsHash && cachedSummaryEN) {
+      finalSummary = cachedSummaryEN;
+      finalSummaryBM = cachedSummaryBM;
+    } else {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+        const conflictPrompt = `
+You are the Synthesizer Agent for SmartPaddy.
+A farm has the following conflicting agent findings:
+${findings.filter((f) => f.severity !== "positive").map((f) => `- ${f.agentName} (${f.severity}): ${f.finding}`).join("\n")}
+
+The farmer's goal is: ${userGoal?.type ?? "balanced"}
+
+The system's recommended strategy is: ${recommended.name} (Yield: ${recommended.projections.yieldTonPerHa.mid} t/ha, Risk: ${recommended.projections.climateRiskScore}%, Cost: RM ${recommended.projections.operationalCostRM})
+Alternative strategy is: ${topAlt?.name ?? "None"} (Yield: ${topAlt?.projections.yieldTonPerHa.mid ?? 0} t/ha, Risk: ${topAlt?.projections.climateRiskScore ?? 0}%, Cost: RM ${topAlt?.projections.operationalCostRM ?? 0})
+
+Evaluate the tradeoffs and formulate a short, synthesized summary (max 3 sentences) explaining why the recommended strategy is best despite the conflicting findings. Provide this in both English and Bahasa Malaysia.
+
+Return ONLY a JSON object with this exact structure, without any markdown formatting:
+{
+  "summaryEN": "...",
+  "summaryBM": "..."
+}
+`;
+        const result = await model.generateContent(conflictPrompt);
+        const responseText = result.response.text();
+        const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+        const synth = JSON.parse(cleanJson);
+        if (synth.summaryEN) {
+          finalSummary = synth.summaryEN;
+          cachedSummaryEN = synth.summaryEN;
+        }
+        if (synth.summaryBM) {
+          finalSummaryBM = synth.summaryBM;
+          cachedSummaryBM = synth.summaryBM;
+        }
+        lastFindingsHash = currentHash;
+      } catch (e) {
+        console.error("Synthesizer Agent failed:", e);
+      }
+    }
+  }
 
   return {
     strategyId: recommended.id,
     strategyName: recommended.name,
     verdict: "recommended",
-    summary: `${recommended.name} strategy is recommended based on current conditions. Projected yield: ${recommended.projections.yieldTonPerHa.mid} t/ha. Operating cost: RM ${recommended.projections.operationalCostRM}. Goal alignment: ${recommended.goalAlignmentScore}/100.`,
-    summaryBM,
+    summary: finalSummary,
+    summaryBM: finalSummaryBM,
     chain,
     contributors,
   };

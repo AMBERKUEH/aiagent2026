@@ -1,6 +1,7 @@
 import AppLayout from "@/components/AppLayout";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 
 type ScanResult = {
   diseaseName: string;
@@ -405,6 +406,7 @@ const enrichScanResultWithGemini = async (
 const endpointCandidates = ["/api/cv/predict"];
 
 const ScannerPage = () => {
+  const { reportDisease } = useFarmContext();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
@@ -523,6 +525,17 @@ const ScannerPage = () => {
         };
 
         setAnalysisResult(withInference);
+
+        // Feed the scan result into the global Multi-Agent System (Crop Health Agent)
+        if (normalized.diseaseName && normalized.confidence > 0) {
+          reportDisease({
+            label: normalized.diseaseName.toLowerCase(),
+            confidence: normalized.confidence / 100,
+            zone: "North Zone",
+            source: "Mobile Scanner",
+            timestamp: new Date().toISOString(),
+          });
+        }
 
         try {
           const geminiFields = await enrichScanResultWithGemini(withInference, payload, file.name);
