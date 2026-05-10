@@ -120,6 +120,11 @@ async function fetchRagContext(userMessage: string, lang: Lang): Promise<string>
 async function plannerAgentRoute(text: string): Promise<{
   activeAgents: string[];
   isWhatIf: boolean;
+  extractedParams?: {
+    days?: number;
+    newPrice?: number;
+    rainfallIncrease?: number;
+  };
 }> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
@@ -132,7 +137,11 @@ async function plannerAgentRoute(text: string): Promise<{
     const prompt = `
 You are the Planner Agent for SmartPaddy. Analyze the following farmer query and determine:
 1. Which specialized agents are needed to answer it.
-2. Whether this is a hypothetical "What if" or simulation query (e.g. "what happens if I delay harvest", "what if paddy price drops").
+2. Whether this is a hypothetical "What if" or simulation query (e.g. "what happens if I delay harvest", "what if paddy price drops to RM 150").
+3. If it is a "What if" query, extract any numerical parameters mentioned:
+   - "days": number of days to delay (e.g., 7 for "delay harvest by a week").
+   - "newPrice": specific price in RM mentioned (e.g., 150 for "RM 150").
+   - "rainfallIncrease": mm of rainfall mentioned (e.g., 60 for "60mm rain").
 
 Available Agents (return EXACT names):
 - "Weather & Disaster Agent": For questions about rain, flood, drought, weather forecasts.
@@ -144,8 +153,14 @@ Available Agents (return EXACT names):
 Return ONLY a JSON object with this exact structure, without any markdown formatting:
 {
   "activeAgents": ["agent name 1", "agent name 2"],
-  "isWhatIf": true or false
+  "isWhatIf": true or false,
+  "extractedParams": {
+    "days": 7,
+    "newPrice": 150,
+    "rainfallIncrease": 60
+  }
 }
+If a parameter is not mentioned, omit it from extractedParams.
 
 Farmer query: "${text}"
 `;
@@ -161,7 +176,7 @@ Farmer query: "${text}"
   }
 }
 
-async function runScenarioSimulation(action: string, farmCtx: FarmContext) {
+async function runScenarioSimulation(action: string, farmCtx: FarmContext, extractedParams?: { days?: number; newPrice?: number; rainfallIncrease?: number }) {
   const lowerAction = action.toLowerCase();
 
   if (!farmCtx.perception || !farmCtx.riskProfile || !farmCtx.yieldEstimate) {
@@ -183,8 +198,7 @@ async function runScenarioSimulation(action: string, farmCtx: FarmContext) {
   // 2. APPLY MUTATIONS based on user input
   // Case A: Delay Harvest
   if (lowerAction.includes("delay") || lowerAction.includes("tunda") || lowerAction.includes("nanti")) {
-    const daysMatch = action.match(/\d+/);
-    const days = daysMatch ? parseInt(daysMatch[0]) : 7;
+    const days = extractedParams?.days ?? (action.match(/\d+/) ? parseInt(action.match(/\d+/)![0]) : 7);
     // Delaying harvest increases exposure to late-season monsoon/pest risk
     hypotheticalRisk.overallRisk = Math.min(100, hypotheticalRisk.overallRisk + (days * 2.5));
     hypotheticalRisk.floodRisk = Math.min(100, hypotheticalRisk.floodRisk + (days * 3));
@@ -193,10 +207,10 @@ async function runScenarioSimulation(action: string, farmCtx: FarmContext) {
   }
 
   // Case B: Paddy Price Change
-  if (lowerAction.includes("price") || lowerAction.includes("harga") || lowerAction.includes("rm")) {
+  if (lowerAction.includes("price") || lowerAction.includes("harga") || lowerAction.includes("rm") || extractedParams?.newPrice !== undefined) {
     const rmMatch = action.match(/rm\s*(\d+(\.\d+)?)/i) || action.match(/(\d+(\.\d+)?)\s*rm/i);
-    if (rmMatch) {
-      const newPrice = parseFloat(rmMatch[1]);
+    const newPrice = extractedParams?.newPrice ?? (rmMatch ? parseFloat(rmMatch[1]) : undefined);
+    if (newPrice !== undefined) {
       hypotheticalPerception.market.paddyPricePerKgRM = newPrice;
       mutationLabel = `Paddy market price shifted to RM ${newPrice}/kg`;
       if (!involvedAgents.includes("Economic Intelligence Agent")) {
@@ -206,10 +220,11 @@ async function runScenarioSimulation(action: string, farmCtx: FarmContext) {
   }
 
   // Case C: Heavy Rainfall / Flood Scenario
-  if (lowerAction.includes("rain") || lowerAction.includes("hujan") || lowerAction.includes("flood") || lowerAction.includes("banjir")) {
-    hypotheticalPerception.weather.rainfall_48h_mm += 60;
-    hypotheticalRisk.floodRisk = Math.min(100, hypotheticalRisk.floodRisk + 40);
-    mutationLabel = "Simulating +60mm extreme rainfall event";
+  if (lowerAction.includes("rain") || lowerAction.includes("hujan") || lowerAction.includes("flood") || lowerAction.includes("banjir") || extractedParams?.rainfallIncrease !== undefined) {
+    const rainIncrease = extractedParams?.rainfallIncrease ?? 60;
+    hypotheticalPerception.weather.rainfall_48h_mm += rainIncrease;
+    hypotheticalRisk.floodRisk = Math.min(100, hypotheticalRisk.floodRisk + (rainIncrease * 0.6));
+    mutationLabel = `Simulating +${rainIncrease}mm extreme rainfall event`;
     involvedAgents.push("Weather & Disaster Agent");
   }
 
@@ -372,7 +387,7 @@ const ChatPage = () => {
         setMessages(prev => prev.map(m => m.id === tempMsgId ? { ...m, text: AGENT_MESSAGES[lang].simulating, involvedAgents: ["Scenario Simulation Agent", AGENT_MESSAGES[lang].analyzing] } : m));
 
         // 2. Run Simulation: Call the Scenario Simulation Agent
-        const sim = await runScenarioSimulation(text, farmCtx);
+        const sim = await runScenarioSimulation(text, farmCtx, plan.extractedParams);
         sim.involvedAgents.forEach(a => consultedAgents.add(a));
         setActiveAgents(Array.from(consultedAgents)); // Show exactly who is working right now
 
