@@ -1,15 +1,19 @@
 import { useNavigate, useLocation } from "react-router-dom";
-
-const navItems = [
-  { icon: "home", label: "Home", path: "/" },
-  { icon: "account_tree", label: "Scenarios", path: "/scenarios" },
-  { icon: "map", label: "Map", path: "/map" },
-  { icon: "person", label: "Profile", path: "/profile" },
-];
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const BottomNav = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useLanguage();
+
+  const navItems = [
+    { icon: "home", label: t("home"), path: "/" },
+    { icon: "account_tree", label: t("scenarios"), path: "/scenarios" },
+    { icon: "center_focus_strong", label: t("scanner"), path: "/scanner" },
+    { icon: "map", label: t("map"), path: "/map" },
+    { icon: "forum", label: t("ask_ai"), path: "/chat" },
+    { icon: "person", label: t("profile"), path: "/profile" },
+  ];
 
   return (
     <nav className="fixed bottom-0 w-full z-[1001] flex justify-around items-center px-4 pt-3 pb-6 glass-panel border-t border-outline-variant/15 shadow-[0_-8px_32px_rgba(25,28,29,0.04)] rounded-t-3xl">

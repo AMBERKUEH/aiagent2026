@@ -1,6 +1,5 @@
 import AppLayout from "@/components/AppLayout";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 
 type ScanResult = {
@@ -349,22 +348,17 @@ const normalizeScanResponse = (payload: unknown, fileName: string): ScanResult =
   };
 };
 
-const enrichScanResultWithGemini = async (
+const enrichScanResultWithGroq = async (
   baseResult: ScanResult,
   payload: unknown,
   fileName: string
 ): Promise<Partial<ScanResult> | null> => {
   if (baseResult.backendStatus === "model_not_ready") return null;
 
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) return null;
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-flash-latest",
-    });
-
     const systemPrompt = "You are an agronomy assistant. Return JSON only with keys: severity, spreadRisk, priority, impact, recommendation, checklist. recommendation must be 3 to 5 practical sentences (at least 40 words). checklist must be an array with 4 to 6 short actionable strings.";
     
     const userPrompt = JSON.stringify({
@@ -377,9 +371,24 @@ const enrichScanResultWithGemini = async (
       backend_payload: payload,
     });
 
-    const result = await model.generateContent(`${systemPrompt}\n\nInput Data: ${userPrompt}`);
-    const response = await result.response;
-    const text = response.text();
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `Input Data: ${userPrompt}` },
+        ],
+      }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const text = data.choices?.[0]?.message?.content ?? "";
     
     const parsed = extractJsonObject(text);
     if (!parsed) return null;
@@ -398,7 +407,7 @@ const enrichScanResultWithGemini = async (
       checklist: checklist.length > 0 ? checklist : baseResult.checklist,
     };
   } catch (error) {
-    console.error("Gemini enrichment failed:", error);
+    console.error("Groq enrichment failed:", error);
     return null;
   }
 };
@@ -538,16 +547,16 @@ const ScannerPage = () => {
         }
 
         try {
-          const geminiFields = await enrichScanResultWithGemini(withInference, payload, file.name);
-          if (geminiFields) {
+          const groqFields = await enrichScanResultWithGroq(withInference, payload, file.name);
+          if (groqFields) {
             setAnalysisResult((current) => ({
               ...current,
-              ...geminiFields,
+              ...groqFields,
               inferenceTime: `${elapsedMs} ms`,
             }));
           }
         } catch {
-          // Keep backend-derived values if Gemini enrichment is unavailable.
+          // Keep backend-derived values if Groq enrichment is unavailable.
         }
 
         setAnalysisError(null);

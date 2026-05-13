@@ -18,10 +18,30 @@ const unavailableMarket = (error: string): MarketSnapshot => ({
   error,
 });
 
+const generateMockMarket = (): MarketSnapshot => ({
+  status: "available",
+  fertilizers: [
+    { name: "Urea", priceRM: 35.5, trend: "stable", weeklyChangePct: 0.5 },
+    { name: "DAP", priceRM: 42.0, trend: "down", weeklyChangePct: -2.3 },
+    { name: "MOP", priceRM: 25.0, trend: "up", weeklyChangePct: 4.7 },
+  ],
+  paddyPricePerKgRM: 1.35,
+  demandLevel: "moderate",
+  source: "Mock Market",
+});
+
 export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
   const url = import.meta.env.VITE_MARKET_API_URL;
+  const useMockFlag = String(import.meta.env.VITE_USE_MOCK_MARKET ?? "").toLowerCase() === "true";
+
+  // Development convenience: allow explicit mock flag or fall back to mock when
+  // running in dev without a configured API URL.
+  if (useMockFlag || (!url && import.meta.env.DEV)) {
+    return generateMockMarket();
+  }
+
   if (!url) {
-    return unavailableMarket("No market API configured. Set VITE_MARKET_API_URL to enable market intelligence.");
+    return unavailableMarket("No market API configured. Set VITE_MARKET_API_URL or enable VITE_USE_MOCK_MARKET to use mock data.");
   }
 
   try {

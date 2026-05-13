@@ -3,6 +3,7 @@ import { rtdb } from "@/lib/firebase";
 import { normalizeSensorPayload, type NormalizedSensors } from "@/lib/sensors";
 import { onValue, ref } from "firebase/database";
 import { useEffect, useMemo, useState } from "react";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis } from "recharts";
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -120,16 +121,8 @@ const getTimestampByAliases = (entry: Record<string, unknown>, aliases: string[]
   return null;
 };
 
-const getSensorPill = (
-  kind: "soil" | "temperature" | "humidity" | "light" | "water",
-  value: number | null
-) => {
-  if (kind === "light") {
-    return { label: "Live", className: "bg-sky-100 text-sky-700" };
-  }
-
 const getSensorPill = (kind: string, value: number | null) => {
-  if (value === null) return { label: "Offline", className: "bg-slate-100 text-slate-400" };
+  if (value === null) return { labelKey: "offline", className: "bg-slate-100 text-slate-400" };
 
   let status: "optimal" | "warning" | "critical" = "optimal";
 
@@ -151,9 +144,9 @@ const getSensorPill = (kind: string, value: number | null) => {
     else status = "critical";
   }
 
-  if (status === "optimal") return { label: "Optimal", className: "bg-emerald-100 text-emerald-700" };
-  if (status === "warning") return { label: "Monitor", className: "bg-amber-100 text-amber-700" };
-  return { label: "Care Needed", className: "bg-red-100 text-red-700" };
+  if (status === "optimal") return { labelKey: "optimal", className: "bg-emerald-100 text-emerald-700" };
+  if (status === "warning") return { labelKey: "monitor", className: "bg-amber-100 text-amber-700" };
+  return { labelKey: "care_needed", className: "bg-red-100 text-red-700" };
 };
 
 const DashboardPage = () => {
@@ -161,6 +154,7 @@ const DashboardPage = () => {
   const [sensors, setSensors] = useState<DashboardSensors>(initialSensors);
   const [liveNow, setLiveNow] = useState(() => new Date());
   const [trendData, setTrendData] = useState<TrendPoint[]>([]);
+  const { t } = useLanguage();
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -235,15 +229,17 @@ const DashboardPage = () => {
     });
   }, []);
 
-  const cropStatus = useMemo(() => {
-    if (sensors.soilMoisture === null || sensors.temperature === null) return "Waiting for Data";
-    if (sensors.soilMoisture >= 65 && sensors.soilMoisture <= 80 && sensors.temperature <= 33) return "Healthy";
-    if (sensors.soilMoisture < 45 || sensors.temperature > 35) return "Needs Attention";
-    return "Stable";
+  const cropStatusKey = useMemo(() => {
+    if (sensors.soilMoisture === null || sensors.temperature === null) return "waiting_for_data";
+    if (sensors.soilMoisture >= 65 && sensors.soilMoisture <= 80 && sensors.temperature <= 33) return "healthy";
+    if (sensors.soilMoisture < 45 || sensors.temperature > 35) return "needs_attention";
+    return "stable";
   }, [sensors.soilMoisture, sensors.temperature]);
 
+  const cropStatus = t(cropStatusKey);
+
   const statusStyle = useMemo(() => {
-    if (cropStatus === "Healthy") {
+    if (cropStatusKey === "healthy") {
       return {
         card: "border border-emerald-200 bg-white",
         label: "text-emerald-700",
@@ -251,7 +247,7 @@ const DashboardPage = () => {
       };
     }
 
-    if (cropStatus === "Stable") {
+    if (cropStatusKey === "stable") {
       return {
         card: "border border-amber-200 bg-white",
         label: "text-amber-700",
@@ -259,7 +255,7 @@ const DashboardPage = () => {
       };
     }
 
-    if (cropStatus === "Needs Attention") {
+    if (cropStatusKey === "needs_attention") {
       return {
         card: "border border-yellow-200 bg-white",
         label: "text-yellow-700",
@@ -272,20 +268,20 @@ const DashboardPage = () => {
       label: "text-slate-500",
       dot: "bg-slate-400",
     };
-  }, [cropStatus]);
+  }, [cropStatusKey]);
 
   const statusSummary = useMemo(() => {
-    if (cropStatus === "Healthy") {
-      return "Environmental conditions are currently within the stronger operating range for crop growth.";
+    if (cropStatusKey === "healthy") {
+      return t("status_summary_healthy") || "Environmental conditions are currently within the stronger operating range for crop growth.";
     }
-    if (cropStatus === "Needs Attention") {
-      return "At least one live reading is outside the comfortable range, so the field should be checked soon.";
+    if (cropStatusKey === "needs_attention") {
+      return t("status_summary_needs_attention") || "At least one live reading is outside the comfortable range, so the field should be checked soon.";
     }
-    if (cropStatus === "Stable") {
-      return "Conditions are acceptable, but a few readings are drifting away from the ideal range.";
+    if (cropStatusKey === "stable") {
+      return t("status_summary_stable") || "Conditions are acceptable, but a few readings are drifting away from the ideal range.";
     }
-    return "Waiting for live Firebase readings to complete the field snapshot.";
-  }, [cropStatus]);
+    return t("status_summary_waiting") || "Waiting for live Firebase readings to complete the field snapshot.";
+  }, [cropStatusKey, t]);
 
   const moistureMessage =
     sensors.soilMoisture === null
@@ -330,55 +326,60 @@ const DashboardPage = () => {
   const humidityPill = getSensorPill("humidity", sensors.humidity);
   const lightPill = getSensorPill("light", sensors.lightIntensity);
   const waterPill = getSensorPill("water", sensors.waterLevel);
+    const soilPillLabel = t(soilPill.labelKey as any);
+    const temperaturePillLabel = t(temperaturePill.labelKey as any);
+    const humidityPillLabel = t(humidityPill.labelKey as any);
+    const lightPillLabel = t(lightPill.labelKey as any);
+    const waterPillLabel = t(waterPill.labelKey as any);
 
   const sensorCards = [
     {
       id: "soilMoisture",
-      label: "Soil Moisture",
+      label: t("soil_moisture"),
       icon: "water_drop",
       value: formatValue(sensors.soilMoisture, "%"),
       raw: sensors.soilMoisture,
-      pill: soilPill,
+        pill: { ...soilPill, label: soilPillLabel },
       min: 65, max: 80, unit: "%",
       meaning: "Root zone water content. Paddy needs >65% for optimal growth."
     },
     {
       id: "temperature",
-      label: "Temperature",
+      label: t("temperature"),
       icon: "thermostat",
       value: formatValue(sensors.temperature, " \u00B0C"),
       raw: sensors.temperature,
-      pill: temperaturePill,
+        pill: { ...temperaturePill, label: temperaturePillLabel },
       min: 25, max: 35, unit: "°C",
       meaning: "Ambient air temp. Paddy grows best between 25°C and 35°C."
     },
     {
       id: "humidity",
-      label: "Relative Humidity",
+      label: t("humidity"),
       icon: "humidity_percentage",
       value: formatValue(sensors.humidity, "%"),
       raw: sensors.humidity,
-      pill: humidityPill,
+        pill: { ...humidityPill, label: humidityPillLabel },
       min: 60, max: 80, unit: "%",
       meaning: "Air water vapor level. High humidity (>80%) increases fungal risk."
     },
     {
       id: "lightIntensity",
-      label: "Light Intensity",
+      label: t("light_intensity"),
       icon: "light_mode",
       value: formatValue(sensors.lightIntensity, " lux"),
       raw: sensors.lightIntensity,
-      pill: lightPill,
+        pill: { ...lightPill, label: lightPillLabel },
       min: 2000, max: 100000, unit: "lux",
       meaning: "Solar intensity. Essential for growth; very high values might lead to heat stress."
     },
     {
       id: "waterLevel",
-      label: "Water Level",
+      label: t("water_level"),
       icon: "waves",
       value: formatValue(sensors.waterLevel, " cm"),
       raw: sensors.waterLevel,
-      pill: waterPill,
+        pill: { ...waterPill, label: waterPillLabel },
       min: 5, max: 15, unit: "cm",
       meaning: "Water depth in plot. Keep between 5-15cm for optimal weed control."
     },
@@ -397,20 +398,20 @@ const DashboardPage = () => {
     const actions: Array<{ tone: "warning" | "clear"; text: string }> = [];
 
     if (sensors.soilMoisture !== null && sensors.soilMoisture < 45) {
-      actions.push({ tone: "warning", text: "Irrigate field — soil moisture is below safe threshold" });
+      actions.push({ tone: "warning", text: t("action_irrigate") });
     }
     if (sensors.temperature !== null && sensors.temperature > 33) {
-      actions.push({ tone: "warning", text: "Monitor heat stress — temperature exceeding comfortable range" });
+      actions.push({ tone: "warning", text: t("action_monitor_heat") });
     }
     if (sensors.humidity !== null && sensors.humidity > 85) {
-      actions.push({ tone: "warning", text: "Watch for fungal risk — humidity is elevated" });
+      actions.push({ tone: "warning", text: t("action_watch_fungal") });
     }
     if (sensors.waterLevel !== null && sensors.waterLevel < 1.0) {
-      actions.push({ tone: "warning", text: "Check water inlet — water level is low" });
+      actions.push({ tone: "warning", text: t("action_check_water_inlet") });
     }
 
     if (actions.length === 0) {
-      actions.push({ tone: "clear", text: "✅ No action needed — all readings within optimal range" });
+      actions.push({ tone: "clear", text: t("no_action_needed") });
     }
 
     return actions.slice(0, 3);
@@ -421,7 +422,7 @@ const DashboardPage = () => {
       <div className="mx-auto max-w-6xl space-y-8 pb-12">
         <section className={`rounded-2xl p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)] ${statusStyle.card}`}>
           <span className={`mb-2 block text-[10px] font-bold uppercase tracking-[0.1em] font-label ${statusStyle.label}`}>
-            Current Crop Status
+            {t("current_crop_status")}
           </span>
           <h2 className={`mb-3 font-headline text-4xl font-bold tracking-[0.05em] ${statusStyle.label}`}>{cropStatus}</h2>
           <p className={`max-w-md text-sm leading-relaxed ${statusStyle.label}`}>{statusSummary}</p>
@@ -540,7 +541,7 @@ const DashboardPage = () => {
                       </div>
                       <p className="text-[11px] text-slate-600 leading-relaxed">{r.meaning}</p>
                       <div className="pt-2 border-t border-slate-100">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">AI Assessment</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">{t("ai_assessment")}</p>
                         <p className={`text-[11px] leading-relaxed font-medium ${r.value > 50 ? "text-red-500" : r.value > 20 ? "text-amber-500" : "text-emerald-600"}`}>
                           {interpretation}
                         </p>
@@ -556,8 +557,8 @@ const DashboardPage = () => {
         <section className="rounded-2xl bg-surface-container-lowest p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)]">
           <div className="mb-5 flex items-center justify-between">
             <div>
-              <h3 className="font-headline text-xl font-semibold text-primary tracking-[0.02em]">Sensor Readings</h3>
-              <p className="mt-1 text-sm text-on-surface-variant">Compact live overview for the six most important field indicators.</p>
+              <h3 className="font-headline text-xl font-semibold text-primary tracking-[0.02em]">{t("sensor_readings")}</h3>
+              <p className="mt-1 text-sm text-on-surface-variant">{t("live_field_sensors")}</p>
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -619,11 +620,11 @@ const DashboardPage = () => {
 
         <section className="rounded-2xl bg-surface-container-lowest p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)]">
           <div className="mb-5">
-            <h3 className="font-headline text-xl font-semibold text-primary tracking-[0.02em]">Recent Trend (Last 20 Readings)</h3>
+            <h3 className="font-headline text-xl font-semibold text-primary tracking-[0.02em]">{t("recent_trend")}</h3>
             <p className="mt-1 text-sm text-on-surface-variant">Temperature and soil moisture movement from the latest `sensor_history` samples.</p>
           </div>
           {trendData.length < 3 ? (
-            <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">Collecting history...</p>
+            <p className="rounded-xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">{t("collecting_history")}</p>
           ) : (
             <div className="h-[200px] w-full">
               <ResponsiveContainer width="100%" height="100%">
@@ -631,8 +632,8 @@ const DashboardPage = () => {
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
                   <Tooltip />
                   <Legend verticalAlign="bottom" height={24} />
-                  <Line type="monotone" dataKey="temperature" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="Temperature" />
-                  <Line type="monotone" dataKey="soilMoisture" stroke="#10b981" strokeWidth={2.5} dot={false} name="Soil Moisture" />
+                  <Line type="monotone" dataKey="temperature" stroke="#f59e0b" strokeWidth={2.5} dot={false} name={t("temperature")} />
+                  <Line type="monotone" dataKey="soilMoisture" stroke="#10b981" strokeWidth={2.5} dot={false} name={t("soil_moisture")} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -641,7 +642,7 @@ const DashboardPage = () => {
 
         <section className="rounded-2xl bg-surface-container-lowest p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)]">
           <div className="mb-4 flex items-center justify-between">
-            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">Soil Moisture</span>
+            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">{t("soil_moisture")}</span>
             <span className="material-symbols-outlined text-primary">water_drop</span>
           </div>
           <div className="mb-6 flex items-center gap-3">
@@ -664,13 +665,13 @@ const DashboardPage = () => {
               </svg>
             </div>
           </div>
-          <p className="mb-4 text-center text-[11px] font-medium text-on-surface-variant">Optimal Range: 65-80%</p>
+          <p className="mb-4 text-center text-[11px] font-medium text-on-surface-variant">{t("optimal_range_label")} 65-80%</p>
           <p className="text-sm leading-relaxed text-on-surface-variant">{moistureMessage}</p>
         </section>
 
         <section className="rounded-2xl bg-surface-container-lowest p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)]">
           <div className="mb-4 flex items-center justify-between">
-            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">Ambient Temperature</span>
+            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">{t("temperature")}</span>
             <span className="material-symbols-outlined text-primary">thermostat</span>
           </div>
           <div className="mb-4 flex items-center gap-3">
@@ -691,7 +692,7 @@ const DashboardPage = () => {
 
         <section className="rounded-2xl bg-surface-container-lowest p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)]">
           <div className="mb-4 flex items-center justify-between">
-            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">Relative Humidity</span>
+            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">{t("humidity")}</span>
             <span className="material-symbols-outlined text-primary">humidity_percentage</span>
           </div>
           <div className="mb-4 flex items-center gap-3">
@@ -703,7 +704,7 @@ const DashboardPage = () => {
 
         <section className="rounded-2xl bg-surface-container-lowest p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)]">
           <div className="mb-4 flex items-center justify-between">
-            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">Light Intensity</span>
+            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">{t("light_intensity")}</span>
             <span className="material-symbols-outlined text-primary">light_mode</span>
           </div>
           <div className="flex items-center justify-between gap-4">
@@ -722,7 +723,7 @@ const DashboardPage = () => {
 
         <section className="rounded-2xl bg-surface-container-lowest p-8 shadow-[0_8px_32px_rgba(25,28,29,0.02)]">
           <div className="mb-4 flex items-center justify-between">
-            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">Water Level</span>
+            <span className="font-label text-[10px] font-bold uppercase tracking-[0.1em] text-outline">{t("water_level")}</span>
             <span className="material-symbols-outlined text-primary">water</span>
           </div>
           <div className="flex items-center justify-between gap-4">
@@ -738,18 +739,18 @@ const DashboardPage = () => {
           </div>
           <p className="mt-4 text-sm leading-relaxed text-on-surface-variant">
             {sensors.waterLevel === null
-              ? "Water level has not been detected yet."
+              ? t("water_not_detected")
               : sensors.waterLevel < 1
-                ? "Water level is critically low. Check water inlet immediately."
+                ? t("water_critical_low")
                 : sensors.waterLevel <= 2
-                  ? "Water level is below optimal. Monitor closely."
-                  : "Water level is within the safe operating range."}
+                  ? t("water_below_optimal")
+                  : t("water_safe")}
           </p>
         </section>
 
         <section className="space-y-4">
           <div>
-            <h3 className="font-headline text-xl font-semibold text-primary tracking-[0.02em]">Recommended Actions</h3>
+            <h3 className="font-headline text-xl font-semibold text-primary tracking-[0.02em]">{t("recommended_actions")}</h3>
             <p className="mt-1 text-sm text-on-surface-variant">Priority checks generated from the current field readings.</p>
           </div>
           <div className="space-y-3">

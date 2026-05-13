@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 import { rtdb } from "@/lib/firebase";
 import { normalizeSensorPayload } from "@/lib/sensors";
 import { searchAgricultureDocs } from "@/lib/supabase";
@@ -26,10 +26,11 @@ interface ChatMessage {
   lang: Lang;
   isOffline?: boolean;
   involvedAgents?: string[];
+}
+
   imageUrl?: string;
   imageAlt?: string;
   scanResult?: InlineScanResult;
-}
 
 type InlineScanResult = {
   diseaseName: string;
@@ -218,6 +219,66 @@ function getResponseLanguageLabel(lang: Lang): string {
   return lang === "BM" ? "Bahasa Malaysia" : "English";
 }
 
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Unable to read selected image."));
+    };
+    reader.onerror = () => reject(new Error("Unable to read selected image."));
+    reader.readAsDataURL(file);
+  });
+
+async function runCvPrediction(file: File): Promise<{
+  label: string;
+  confidence: number;
+  recommendation: string;
+}> {
+  try {
+    const health = await fetch("/api/cv/health", { method: "GET" });
+    if (!health.ok) {
+      throw new Error("CV backend is not reachable. Start the FastAPI server on port 8000.");
+    }
+  } catch {
+    throw new Error("CV backend is offline. Start backend/server.py on port 8000, then retry.");
+  }
+
+  const imageBase64 = await fileToDataUrl(file);
+  const response = await fetch("/api/cv/predict", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_base64: imageBase64 }),
+  });
+
+  if (!response.ok) {
+    if (response.status === 502) {
+      throw new Error("Bad Gateway from /api/cv/predict. Backend service on port 8000 is down or crashed.");
+    }
+    let detail = `HTTP ${response.status}`;
+    try {
+      const payload = await response.json();
+      if (payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).detail === "string") {
+        detail = (payload as Record<string, string>).detail;
+      }
+    } catch {
+      // Keep fallback.
+    }
+    throw new Error(detail);
+  }
+
+  const payload = await response.json() as Record<string, unknown>;
+  const rawLabel = typeof payload.predicted_label === "string" ? payload.predicted_label : "unknown";
+  const rawConfidence = typeof payload.confidence === "number" ? payload.confidence : 0;
+  const confidence = rawConfidence <= 1 ? Math.round(rawConfidence * 100) : Math.round(rawConfidence);
+  const recommendation = typeof payload.recommendation === "string" ? payload.recommendation : "";
+
+  return { label: rawLabel, confidence, recommendation };
+}
+
 async function fetchRagContext(userMessage: string, lang: Lang): Promise<string> {
   try {
     const words = userMessage
@@ -271,14 +332,12 @@ async function plannerAgentRoute(text: string): Promise<{
     rainfallIncrease?: number;
   };
 }> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
   if (!apiKey) {
     return { activeAgents: ["Orchestrator Agent", "Economic Intelligence Agent", "Weather & Disaster Agent", "Yield Forecast Agent", "Crop Health Agent"], isWhatIf: false };
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
     const prompt = `
 You are the Planner Agent for SmartPaddy. Analyze the following farmer query and determine:
 1. Which specialized agents are needed to answer it.
@@ -309,8 +368,24 @@ If a parameter is not mentioned, omit it from extractedParams.
 
 Farmer query: "${text}"
 `;
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: "Return strict JSON only." },
+          { role: "user", content: prompt },
+        ],
+      }),
+    });
+    if (!response.ok) throw new Error(`Groq planner failed: HTTP ${response.status}`);
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const responseText = data.choices?.[0]?.message?.content ?? "";
     const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
     const plan = JSON.parse(cleanJson);
     if (!Array.isArray(plan.activeAgents)) plan.activeAgents = ["Orchestrator Agent"];
@@ -399,77 +474,135 @@ async function runScenarioSimulation(action: string, farmCtx: FarmContext, extra
   };
 }
 
-async function callGemini(
+async function callGroq(
   systemPrompt: string,
   conversationHistory: { role: string; content: string }[],
   fullUserMessage: string,
   onChunk: (text: string) => void
 ): Promise<string> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (!apiKey) throw new Error("Gemini API key not configured");
+  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  if (!apiKey) throw new Error("Groq API key not configured");
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-
-    const chat = model.startChat({
-      history: [
-        {
-          role: "user",
-          parts: [{ text: `SYSTEM INSTRUCTION: ${systemPrompt}` }],
-        },
-        {
-          role: "model",
-          parts: [{ text: "Understood. I will act as SmartPaddy and follow those instructions." }],
-        },
-        ...conversationHistory.map(h => ({
-          role: h.role === "assistant" ? "model" : "user",
-          parts: [{ text: h.content }],
-        })),
-      ],
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...conversationHistory.map((h) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content })),
+      { role: "user", content: fullUserMessage },
+    ];
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        temperature: 0.4,
+        messages,
+      }),
     });
-
-    const result = await chat.sendMessageStream(fullUserMessage);
-    let fullText = "";
-
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      fullText += chunkText;
-      onChunk(fullText);
-    }
-
+    if (!response.ok) throw new Error(`Groq chat failed: HTTP ${response.status}`);
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const fullText = data.choices?.[0]?.message?.content ?? "";
+    onChunk(fullText);
     return fullText;
   } catch (error) {
-    console.error("Gemini call failed:", error);
+    console.error("Groq call failed:", error);
     throw error;
   }
 }
 
+<<<<<<< HEAD
 export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boolean; onClose?: () => void }) => {
   const { ctx: farmCtx, reportDisease } = useFarmContext();
   const [lang, setLang] = useState<Lang>("BM");
+=======
+const ChatPage = () => {
+  const { ctx: farmCtx } = useFarmContext();
+  const { lang, setLang } = useLanguage();
+>>>>>>> f4daf7c (Save local changes)
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showChips, setShowChips] = useState(true);
+<<<<<<< HEAD
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
   const [isScanSheetOpen, setIsScanSheetOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+=======
+  const [showCameraMenu, setShowCameraMenu] = useState(false);
+  const [visionBusy, setVisionBusy] = useState(false);
+>>>>>>> f4daf7c (Save local changes)
   const [soilMoisture, setSoilMoisture] = useState<number | null>(null);
   const [temp, setTemp] = useState<number | null>(null);
   const [lightLux, setLightLux] = useState<number | null>(null);
   const [conversationHistory, setConversationHistory] = useState<{ role: string; content: string }[]>([]);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+<<<<<<< HEAD
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+=======
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+>>>>>>> f4daf7c (Save local changes)
   const nextId = useRef(1);
+
+  const handleVisionFile = useCallback(async (file: File, source: "camera" | "upload") => {
+    const userText = lang === "BM"
+      ? source === "camera"
+        ? `[Saya mengambil gambar daun padi: ${file.name}]`
+        : `[Saya memuat naik gambar daun padi: ${file.name}]`
+      : source === "camera"
+        ? `[I captured a paddy leaf image: ${file.name}]`
+        : `[I uploaded a paddy leaf image: ${file.name}]`;
+
+    setMessages((prev) => [...prev, { id: nextId.current++, role: "user", text: userText, lang }]);
+
+    const pendingId = nextId.current++;
+    setVisionBusy(true);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: pendingId,
+        role: "assistant",
+        text: lang === "BM" ? "Menghantar imej ke backend CV..." : "Sending image to CV backend...",
+        lang,
+        involvedAgents: ["Crop Health Agent"],
+      },
+    ]);
+
+    try {
+      const result = await runCvPrediction(file);
+      const labelText = result.label.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+      const answer = lang === "BM"
+        ? `Keputusan imbasan: **${labelText}** (${result.confidence}% keyakinan).${result.recommendation ? `\n\nCadangan: ${result.recommendation}` : ""}`
+        : `Scan result: **${labelText}** (${result.confidence}% confidence).${result.recommendation ? `\n\nRecommendation: ${result.recommendation}` : ""}`;
+      setMessages((prev) => prev.map((m) => (m.id === pendingId ? { ...m, text: answer } : m)));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown backend error";
+      const failText = lang === "BM"
+        ? `Imbasan CV gagal. Ralat backend: ${detail}`
+        : `CV scan failed. Backend error: ${detail}`;
+      setMessages((prev) => prev.map((m) => (m.id === pendingId ? { ...m, text: failText, isOffline: true } : m)));
+    } finally {
+      setVisionBusy(false);
+    }
+  }, [lang]);
+
+  const requestCameraPermission = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error(lang === "BM" ? "Peranti ini tidak menyokong akses kamera." : "This device does not support camera access.");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+    stream.getTracks().forEach((track) => track.stop());
+  }, [lang]);
 
   const handleLangChange = useCallback((nextLang: Lang) => {
     setLang(nextLang);
     setConversationHistory([]);
-  }, []);
+  }, [setLang]);
 
   // Keep the existing normalized sensor feed so dashboard/prediction behavior stays aligned.
   useEffect(() => {
@@ -706,7 +839,7 @@ export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boo
 
       try {
         // 4 & 5. LLM Call & Stream: Updated system prompt and streaming chunks
-        const replyText = await callGemini(
+        const replyText = await callGroq(
           SYSTEM_PROMPT[lang],
           conversationHistory,
           fullUserMessage,
@@ -725,7 +858,7 @@ export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boo
           ].slice(-6)
         );
       } catch (err) {
-        console.error("Gemini call failed:", err);
+        console.error("Groq call failed:", err);
         const errorText = lang === "BM"
           ? "Sambungan AI tidak tersedia sekarang, jadi SmartPaddy tidak akan mereka jawapan. Sila cuba lagi sebentar lagi."
           : "The AI connection is unavailable right now, so SmartPaddy will not fabricate an answer. Please try again shortly.";
@@ -1019,7 +1152,104 @@ export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boo
         )}
 
         {/* Input */}
-        <form onSubmit={handleSubmit} className="flex items-center gap-2 px-1 pb-1">
+        <form onSubmit={handleSubmit} className="flex items-center gap-2 px-1 pb-1 relative">
+          {/* Hidden file inputs */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              await handleVisionFile(file, "camera");
+              if (cameraInputRef.current) cameraInputRef.current.value = "";
+            }}
+          />
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              await handleVisionFile(file, "upload");
+              if (uploadInputRef.current) uploadInputRef.current.value = "";
+            }}
+          />
+
+          {/* Camera button with popup */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowCameraMenu(prev => !prev)}
+              className="w-11 h-11 rounded-xl flex items-center justify-center bg-surface-container-low border border-outline-variant/20 text-slate-500 hover:text-primary hover:border-primary/30 transition-all active:scale-95"
+              title={lang === "BM" ? "Imbas daun padi" : "Scan paddy leaf"}
+            >
+              <span className="material-symbols-outlined text-lg">photo_camera</span>
+            </button>
+
+            {/* Popup menu */}
+            {showCameraMenu && (
+              <>
+                <div className="fixed inset-0 z-[100]" onClick={() => setShowCameraMenu(false)} />
+                <div className="absolute bottom-14 left-0 z-[101] w-52 rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <p className="px-4 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {lang === "BM" ? "Imbasan CV" : "CV Scanner"}
+                  </p>
+                  <button
+                    type="button"
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
+                    onClick={() => { setShowCameraMenu(false); uploadInputRef.current?.click(); }}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-blue-600 text-base">upload</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-800">{lang === "BM" ? "Muat Naik Gambar" : "Upload Picture"}</p>
+                      <p className="text-[10px] text-slate-400">{lang === "BM" ? "Pilih dari galeri" : "Choose from gallery"}</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left border-t border-slate-100"
+                    onClick={async () => {
+                      setShowCameraMenu(false);
+                      try {
+                        await requestCameraPermission();
+                        cameraInputRef.current?.click();
+                      } catch (error) {
+                        const detail = error instanceof Error ? error.message : "Camera permission denied.";
+                        setMessages((prev) => [
+                          ...prev,
+                          {
+                            id: nextId.current++,
+                            role: "assistant",
+                            lang,
+                            isOffline: true,
+                            text: lang === "BM"
+                              ? `Tidak boleh buka kamera: ${detail}`
+                              : `Unable to open camera: ${detail}`,
+                          },
+                        ]);
+                      }
+                    }}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-emerald-600 text-base">photo_camera</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-slate-800">{lang === "BM" ? "Buka Kamera" : "Open Camera"}</p>
+                      <p className="text-[10px] text-slate-400">{lang === "BM" ? "Ambil gambar langsung" : "Capture live photo"}</p>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
           <input
             className="min-w-0 flex-1 bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-3 text-sm placeholder:text-outline/50 focus:outline-none focus:ring-1 focus:ring-primary transition-all"
             placeholder={PLACEHOLDERS[lang]}
@@ -1055,8 +1285,13 @@ export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boo
           </Tooltip>
           <button
             type="submit"
+<<<<<<< HEAD
             disabled={isTyping || !input.trim()}
             className="bg-primary text-primary-foreground w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+=======
+            disabled={isTyping || visionBusy || !input.trim()}
+            className="bg-primary text-primary-foreground w-11 h-11 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+>>>>>>> f4daf7c (Save local changes)
           >
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
               send
@@ -1169,5 +1404,8 @@ const ChatPage = () => <TanyaPadiChatPanel />;
 
 export default ChatPage;
 
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> f4daf7c (Save local changes)

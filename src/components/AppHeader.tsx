@@ -1,7 +1,9 @@
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { useLanguage } from "@/lib/i18n/LanguageProvider";
 
 const AppHeader = () => {
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
 
   return (
     <header className="fixed top-0 w-full z-[1001] bg-surface-container-lowest flex justify-between items-center px-6 py-4">
@@ -20,7 +22,7 @@ const AppHeader = () => {
       <button
         onClick={() => logout()}
         className="flex h-10 items-center gap-2 rounded-full px-3 text-primary hover:bg-surface-container-high/50 transition-colors active:scale-95"
-        title={user?.email ? `Sign out ${user.email}` : "Sign out"}
+        title={user?.email ? `${t("sign_out")} ${user.email}` : t("sign_out")}
       >
         <span className="hidden max-w-[140px] truncate text-xs font-semibold sm:inline">{user?.email}</span>
         <span className="material-symbols-outlined">logout</span>
