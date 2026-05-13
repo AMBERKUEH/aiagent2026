@@ -2,9 +2,8 @@ import { ReactNode, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import SidebarNav from "./SidebarNav";
 import AgentPanel from "./AgentPanel";
-import ChatbotPopup from "./ChatbotPopup";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
-import BottomNav from "./BottomNav";
+// BottomNav removed — mobile bottom navigation is disabled
 import { TanyaPadiChatPanel } from "@/pages/ChatPage";
 
 const TanyaPadiLauncher = () => {
@@ -38,7 +37,7 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
-  const [chatPopupOpen, setChatPopupOpen] = useState(false);
+  
 
   const { t } = useLanguage();
 
@@ -98,33 +97,8 @@ const AppLayout = ({ children }: { children: ReactNode }) => {
         {children}
       </main>
 
-      {/* ── Floating Chatbot FAB ──────────────────────────── */}
-      <button
-        onClick={() => setChatPopupOpen((prev) => !prev)}
-        className={`fixed bottom-6 right-4 z-[1998] w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 active:scale-90 ${
-          chatPopupOpen
-            ? "bg-slate-700 rotate-0"
-            : "bg-primary hover:shadow-primary/30 hover:scale-105"
-        }`}
-        id="chatbot-fab-btn"
-        title={t("ask_smartpaddy")}
-      >
-        <span className="material-symbols-outlined text-white text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
-          {chatPopupOpen ? "close" : "forum"}
-        </span>
-      </button>
+      {/* Chatbot popup removed — using TanyaPadi launcher (buffalo avatar) only */}
 
-      {/* ── Chatbot Popup ─────────────────────────────────── */}
-      <ChatbotPopup
-        isOpen={chatPopupOpen}
-        onClose={() => setChatPopupOpen(false)}
-        onOpenFullChat={() => {
-          setChatPopupOpen(false);
-          navigate("/chat");
-        }}
-      />
-
-      <BottomNav />
       <TanyaPadiLauncher />
     </div>
   );

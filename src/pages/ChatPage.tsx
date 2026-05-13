@@ -26,11 +26,10 @@ interface ChatMessage {
   lang: Lang;
   isOffline?: boolean;
   involvedAgents?: string[];
-}
-
   imageUrl?: string;
   imageAlt?: string;
   scanResult?: InlineScanResult;
+}
 
 type InlineScanResult = {
   diseaseName: string;
@@ -82,19 +81,6 @@ const AGENT_MESSAGES: Record<Lang, { planning: string; simulating: string; routi
   },
 };
 
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-      reject(new Error("Unable to encode the selected image."));
-    };
-    reader.onerror = () => reject(new Error("Unable to read the selected image."));
-    reader.readAsDataURL(file);
-  });
 
 const toTitleCase = (value: string) =>
   value
@@ -511,42 +497,28 @@ async function callGroq(
     throw error;
   }
 }
-
-<<<<<<< HEAD
-export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boolean; onClose?: () => void }) => {
-  const { ctx: farmCtx, reportDisease } = useFarmContext();
-  const [lang, setLang] = useState<Lang>("BM");
-=======
-const ChatPage = () => {
-  const { ctx: farmCtx } = useFarmContext();
-  const { lang, setLang } = useLanguage();
->>>>>>> f4daf7c (Save local changes)
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [showChips, setShowChips] = useState(true);
-<<<<<<< HEAD
-  const [scanError, setScanError] = useState<string | null>(null);
-  const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
-  const [isScanSheetOpen, setIsScanSheetOpen] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-=======
-  const [showCameraMenu, setShowCameraMenu] = useState(false);
-  const [visionBusy, setVisionBusy] = useState(false);
->>>>>>> f4daf7c (Save local changes)
-  const [soilMoisture, setSoilMoisture] = useState<number | null>(null);
+  export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boolean; onClose?: () => void }) => {
+    const { ctx: farmCtx, reportDisease } = useFarmContext();
+    const { lang, setLang } = useLanguage();
+    const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [input, setInput] = useState("");
+    const [isTyping, setIsTyping] = useState(false);
+    const [showChips, setShowChips] = useState(true);
+    const [showCameraMenu, setShowCameraMenu] = useState(false);
+    const [visionBusy, setVisionBusy] = useState(false);
+    const [scanError, setScanError] = useState<string | null>(null);
+    const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
+    const [isScanSheetOpen, setIsScanSheetOpen] = useState(false);
+    const [isScanning, setIsScanning] = useState(false);
+    const [soilMoisture, setSoilMoisture] = useState<number | null>(null);
   const [temp, setTemp] = useState<number | null>(null);
   const [lightLux, setLightLux] = useState<number | null>(null);
   const [conversationHistory, setConversationHistory] = useState<{ role: string; content: string }[]>([]);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
-<<<<<<< HEAD
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-=======
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
->>>>>>> f4daf7c (Save local changes)
   const nextId = useRef(1);
 
   const handleVisionFile = useCallback(async (file: File, source: "camera" | "upload") => {
@@ -1285,13 +1257,8 @@ const ChatPage = () => {
           </Tooltip>
           <button
             type="submit"
-<<<<<<< HEAD
-            disabled={isTyping || !input.trim()}
-            className="bg-primary text-primary-foreground w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
-=======
             disabled={isTyping || visionBusy || !input.trim()}
-            className="bg-primary text-primary-foreground w-11 h-11 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
->>>>>>> f4daf7c (Save local changes)
+            className="bg-primary text-primary-foreground w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
           >
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
               send
@@ -1403,9 +1370,3 @@ const ChatPage = () => {
 const ChatPage = () => <TanyaPadiChatPanel />;
 
 export default ChatPage;
-
-<<<<<<< HEAD
-
-
-=======
->>>>>>> f4daf7c (Save local changes)

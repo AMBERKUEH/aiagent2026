@@ -64,6 +64,25 @@ type TrendPoint = {
   timestampMs: number;
 };
 
+type SensorPill = {
+  labelKey: string;
+  className: string;
+  label: string;
+};
+
+type SensorCard = {
+  id: string;
+  label: string;
+  icon: string;
+  value: string;
+  raw: number | null;
+  pill: SensorPill;
+  min: number;
+  max: number;
+  unit: string;
+  meaning: string;
+};
+
 const toNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
@@ -332,14 +351,20 @@ const DashboardPage = () => {
     const lightPillLabel = t(lightPill.labelKey as any);
     const waterPillLabel = t(waterPill.labelKey as any);
 
-  const sensorCards = [
+    const soilPillFull: SensorPill = { labelKey: soilPill.labelKey, className: soilPill.className, label: soilPillLabel };
+    const temperaturePillFull: SensorPill = { labelKey: temperaturePill.labelKey, className: temperaturePill.className, label: temperaturePillLabel };
+    const humidityPillFull: SensorPill = { labelKey: humidityPill.labelKey, className: humidityPill.className, label: humidityPillLabel };
+    const lightPillFull: SensorPill = { labelKey: lightPill.labelKey, className: lightPill.className, label: lightPillLabel };
+    const waterPillFull: SensorPill = { labelKey: waterPill.labelKey, className: waterPill.className, label: waterPillLabel };
+
+  const sensorCards: SensorCard[] = [
     {
       id: "soilMoisture",
       label: t("soil_moisture"),
       icon: "water_drop",
       value: formatValue(sensors.soilMoisture, "%"),
       raw: sensors.soilMoisture,
-        pill: { ...soilPill, label: soilPillLabel },
+        pill: { ...soilPill, label: soilPillLabel } as SensorPill,
       min: 65, max: 80, unit: "%",
       meaning: "Root zone water content. Paddy needs >65% for optimal growth."
     },
@@ -349,7 +374,7 @@ const DashboardPage = () => {
       icon: "thermostat",
       value: formatValue(sensors.temperature, " \u00B0C"),
       raw: sensors.temperature,
-        pill: { ...temperaturePill, label: temperaturePillLabel },
+        pill: { ...temperaturePill, label: temperaturePillLabel } as SensorPill,
       min: 25, max: 35, unit: "°C",
       meaning: "Ambient air temp. Paddy grows best between 25°C and 35°C."
     },
@@ -359,7 +384,7 @@ const DashboardPage = () => {
       icon: "humidity_percentage",
       value: formatValue(sensors.humidity, "%"),
       raw: sensors.humidity,
-        pill: { ...humidityPill, label: humidityPillLabel },
+        pill: { ...humidityPill, label: humidityPillLabel } as SensorPill,
       min: 60, max: 80, unit: "%",
       meaning: "Air water vapor level. High humidity (>80%) increases fungal risk."
     },
@@ -369,7 +394,7 @@ const DashboardPage = () => {
       icon: "light_mode",
       value: formatValue(sensors.lightIntensity, " lux"),
       raw: sensors.lightIntensity,
-        pill: { ...lightPill, label: lightPillLabel },
+        pill: { ...lightPill, label: lightPillLabel } as SensorPill,
       min: 2000, max: 100000, unit: "lux",
       meaning: "Solar intensity. Essential for growth; very high values might lead to heat stress."
     },
@@ -379,7 +404,7 @@ const DashboardPage = () => {
       icon: "waves",
       value: formatValue(sensors.waterLevel, " cm"),
       raw: sensors.waterLevel,
-        pill: { ...waterPill, label: waterPillLabel },
+        pill: { ...waterPill, label: waterPillLabel } as SensorPill,
       min: 5, max: 15, unit: "cm",
       meaning: "Water depth in plot. Keep between 5-15cm for optimal weed control."
     },
@@ -630,7 +655,7 @@ const DashboardPage = () => {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={trendData}>
                   <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
-                  <Tooltip />
+                  <RechartsTooltip />
                   <Legend verticalAlign="bottom" height={24} />
                   <Line type="monotone" dataKey="temperature" stroke="#f59e0b" strokeWidth={2.5} dot={false} name={t("temperature")} />
                   <Line type="monotone" dataKey="soilMoisture" stroke="#10b981" strokeWidth={2.5} dot={false} name={t("soil_moisture")} />
@@ -647,7 +672,7 @@ const DashboardPage = () => {
           </div>
           <div className="mb-6 flex items-center gap-3">
             <h3 className="font-headline text-3xl font-bold text-primary">{formatValue(sensors.soilMoisture, "%")}</h3>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${soilPill.className}`}>{soilPill.label}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${soilPillFull.className}`}>{soilPillFull.label}</span>
           </div>
           <div className="mb-4 flex justify-center">
             <div className="relative h-24 w-48 overflow-hidden">
@@ -676,7 +701,7 @@ const DashboardPage = () => {
           </div>
           <div className="mb-4 flex items-center gap-3">
             <h3 className="font-headline text-3xl font-bold text-primary">{formatValue(sensors.temperature, "\u00B0C")}</h3>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${temperaturePill.className}`}>{temperaturePill.label}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${temperaturePillFull.className}`}>{temperaturePillFull.label}</span>
           </div>
           <div className="mb-4 flex items-end gap-2">
             {tempBars.map((height, index) => (
@@ -697,7 +722,7 @@ const DashboardPage = () => {
           </div>
           <div className="mb-4 flex items-center gap-3">
             <h3 className="font-headline text-3xl font-bold text-primary">{formatValue(sensors.humidity, "%")}</h3>
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${humidityPill.className}`}>{humidityPill.label}</span>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${humidityPillFull.className}`}>{humidityPillFull.label}</span>
           </div>
           <p className="text-sm leading-relaxed text-on-surface-variant">{humidityMessage}</p>
         </section>
@@ -711,7 +736,7 @@ const DashboardPage = () => {
             <div>
               <div className="mb-2 flex items-center gap-3">
                 <h3 className="font-headline text-3xl font-bold text-primary">{formatValue(sensors.lightIntensity, " lux")}</h3>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${lightPill.className}`}>{lightPill.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${lightPillFull.className}`}>{lightPillFull.label}</span>
               </div>
             </div>
             <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-outline-variant/30">
@@ -730,7 +755,7 @@ const DashboardPage = () => {
             <div>
               <div className="mb-2 flex items-center gap-3">
                 <h3 className="font-headline text-3xl font-bold text-primary">{formatValue(sensors.waterLevel, " cm")}</h3>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${waterPill.className}`}>{waterPill.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${waterPillFull.className}`}>{waterPillFull.label}</span>
               </div>
             </div>
             <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-outline-variant/30">
