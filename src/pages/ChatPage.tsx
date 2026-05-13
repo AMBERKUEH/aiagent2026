@@ -1,4 +1,3 @@
-import AppLayout from "@/components/AppLayout";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { rtdb } from "@/lib/firebase";
@@ -446,7 +445,7 @@ async function callGemini(
   }
 }
 
-const ChatPage = () => {
+export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boolean; onClose?: () => void }) => {
   const { ctx: farmCtx, reportDisease } = useFarmContext();
   const [lang, setLang] = useState<Lang>("BM");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -744,36 +743,61 @@ const ChatPage = () => {
     sendMessage(input);
   };
 
+  const shellHeightClass = compact ? "h-[min(62vh,560px)] min-h-[420px]" : "h-[calc(100vh-140px)] min-h-[620px]";
+
   return (
-    <AppLayout>
-      <div className="mx-auto max-w-3xl">
-        <section className="flex h-[calc(100vh-140px)] min-h-[620px] flex-col">
+    <>
+      <div className={compact ? "h-full" : "mx-auto max-w-3xl"}>
+        <section className={`flex ${shellHeightClass} flex-col`}>
         {/* Header */}
-        <div className="flex items-center justify-between py-3 px-1">
-          <h2 className="font-headline text-2xl font-bold tracking-wide">
-            <span className="text-on-tertiary-container">Tanya</span>{" "}
-            <span className="text-primary italic">Padi</span>{" "}
-            <span>{EMOJI_RICE}</span>
-          </h2>
-          <div className="flex items-center bg-surface-container-low rounded-full p-0.5 border border-outline-variant/20">
-            <button
-              onClick={() => handleLangChange("BM")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "BM"
-                ? "bg-primary text-primary-foreground"
-                : "text-on-surface-variant hover:text-primary"
-                }`}
-            >
-              BM
-            </button>
-            <button
-              onClick={() => handleLangChange("EN")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "EN"
-                ? "bg-primary text-primary-foreground"
-                : "text-on-surface-variant hover:text-primary"
-                }`}
-            >
-              EN
-            </button>
+        <div className={`flex items-center justify-between px-1 ${compact ? "py-2" : "py-3"}`}>
+          <div className="flex items-center gap-2.5">
+            {compact && (
+              <div className="h-10 w-10 overflow-hidden rounded-full border border-primary/10 bg-surface-container-high shadow-sm">
+                <img
+                  src="/buffalo-avatar.png"
+                  alt="Tanya Padi buffalo assistant"
+                  className="h-full w-full object-contain p-0.5"
+                />
+              </div>
+            )}
+            <h2 className={`font-headline font-bold tracking-wide ${compact ? "text-xl" : "text-2xl"}`}>
+              <span className="text-on-tertiary-container">Tanya</span>{" "}
+              <span className="text-primary italic">Padi</span>{" "}
+              <span>{EMOJI_RICE}</span>
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-surface-container-low rounded-full p-0.5 border border-outline-variant/20">
+              <button
+                onClick={() => handleLangChange("BM")}
+                className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "BM"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-on-surface-variant hover:text-primary"
+                  }`}
+              >
+                BM
+              </button>
+              <button
+                onClick={() => handleLangChange("EN")}
+                className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all ${lang === "EN"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-on-surface-variant hover:text-primary"
+                  }`}
+              >
+                EN
+              </button>
+            </div>
+            {compact && onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-surface-container-low text-on-surface-variant transition-colors hover:bg-surface-container-high"
+                aria-label="Close Tanya Padi"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -804,9 +828,9 @@ const ChatPage = () => {
               <div key={msg.id} className="flex gap-2.5 items-start">
                 <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 overflow-hidden border border-primary/10 shadow-sm">
                   <img
-                    src="/smartpaddy-buffalo-avatar.svg"
+                    src="/buffalo-avatar.png"
                     alt="SmartPaddy buffalo assistant"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-contain p-0.5"
                   />
                 </div>
                 <div className="max-w-[80%]">
@@ -921,9 +945,9 @@ const ChatPage = () => {
             <div className="flex gap-2.5 items-start">
               <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 overflow-hidden border border-primary/10 shadow-sm">
                 <img
-                  src="/smartpaddy-buffalo-avatar.svg"
+                  src="/buffalo-avatar.png"
                   alt="SmartPaddy buffalo assistant"
-                  className="h-full w-full object-cover"
+                  className="h-full w-full object-contain p-0.5"
                 />
               </div>
               <div className="flex flex-col gap-2">
@@ -1137,8 +1161,13 @@ const ChatPage = () => {
           </section>
         </div>
       )}
-    </AppLayout>
+    </>
   );
 };
 
+const ChatPage = () => <TanyaPadiChatPanel />;
+
 export default ChatPage;
+
+
+

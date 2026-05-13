@@ -9,7 +9,6 @@ import { FarmContextProvider } from "@/lib/agents/FarmContextProvider";
 import CommandCenterPage from "./pages/CommandCenterPage";
 import LoginPage from "./pages/LoginPage";
 import ScenarioExplorerPage from "./pages/ScenarioExplorerPage";
-import ChatPage from "./pages/ChatPage";
 import MapPage from "./pages/MapPage";
 import ProfilePage from "./pages/ProfilePage";
 import NotFound from "./pages/NotFound";
@@ -33,9 +32,9 @@ const App = () => (
               <Route path="/login" element={<LoginPage />} />
               <Route path="/" element={<ProtectedRoute><CommandCenterPage /></ProtectedRoute>} />
               <Route path="/scenarios" element={<ProtectedRoute><ScenarioExplorerPage /></ProtectedRoute>} />
-              <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+              <Route path="/chat" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
               <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
-              <Route path="/scanner" element={<ProtectedRoute><Navigate to="/chat" replace /></ProtectedRoute>} />
+              <Route path="/scanner" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
