@@ -6,6 +6,7 @@ import { normalizeSensorPayload } from "@/lib/sensors";
 import { searchAgricultureDocs } from "@/lib/supabase";
 import { ref, onValue } from "firebase/database";
 import ReactMarkdown from "react-markdown";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 import { generateScenarioTree } from "@/lib/agents/scenarioEngine";
 import type { FarmContext } from "@/lib/agents/types";
@@ -26,7 +27,31 @@ interface ChatMessage {
   text: string;
   lang: Lang;
   isOffline?: boolean;
+  involvedAgents?: string[];
+  imageUrl?: string;
+  imageAlt?: string;
+  scanResult?: InlineScanResult;
 }
+
+type InlineScanResult = {
+  diseaseName: string;
+  confidence: number;
+  status: string;
+  summary: string;
+  recommendation: string;
+  possibleRisks: string[];
+  fileName: string;
+};
+
+const emptyScanResult: InlineScanResult = {
+  diseaseName: "No scan yet",
+  confidence: 0,
+  status: "idle",
+  summary: "Upload a paddy leaf image to run the backend disease scan.",
+  recommendation: "The scan result will appear here and will also update the crop-health agent context.",
+  possibleRisks: [],
+  fileName: "",
+};
 
 const SYSTEM_PROMPT: Record<Lang, string> = {
   BM: "You are SmartPaddy, an AI farming advisory agent for Malaysian B40 paddy farmers. Always respond in Bahasa Malaysia. Keep answers short, practical, and simple. You will receive: (1) live sensor readings, (2) agent findings from our multi-agent system (weather, crop health, yield, market agents), (3) the current recommended strategy and scenario comparison. Use ALL of this context to give highly specific, actionable advice. When farmers ask 'why', explain the reasoning chain from our agents. Only answer about paddy farming and Malaysian agriculture. End every response with one clear action.",
@@ -56,6 +81,128 @@ const AGENT_MESSAGES: Record<Lang, { planning: string; simulating: string; routi
     routing: "Routing Request...",
     analyzing: "Analyzing Context...",
   },
+};
+
+const fileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Unable to encode the selected image."));
+    };
+    reader.onerror = () => reject(new Error("Unable to read the selected image."));
+    reader.readAsDataURL(file);
+  });
+
+const toTitleCase = (value: string) =>
+  value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+
+const asString = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null);
+
+const asNumber = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const normalizeConfidence = (value: unknown) => {
+  const numeric = asNumber(value) ?? 0;
+  const percent = numeric <= 1 ? numeric * 100 : numeric;
+  return Math.max(0, Math.min(100, Math.round(percent)));
+};
+
+const pickString = (source: Record<string, unknown>, keys: string[], fallback: string) => {
+  for (const key of keys) {
+    const value = asString(source[key]);
+    if (value) return value;
+  }
+  return fallback;
+};
+
+const normalizeInlineScanResponse = (payload: unknown, fileName: string): InlineScanResult => {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ...emptyScanResult,
+      diseaseName: "Unexpected response",
+      status: "error",
+      summary: "The backend returned a scan response, but it was not valid JSON.",
+      recommendation: "Check the backend disease scanner contract before trying another image.",
+      fileName,
+    };
+  }
+
+  const source = payload as Record<string, unknown>;
+  const status = pickString(source, ["status"], "ok");
+
+  if (status === "model_not_ready") {
+    return {
+      ...emptyScanResult,
+      diseaseName: "Model setup needed",
+      status,
+      summary: pickString(
+        source,
+        ["message", "detail"],
+        "The scanner backend is online, but the CV model artifact has not been exported yet."
+      ),
+      recommendation:
+        "Train or export the CV model artifact, then retry the scan from this Tanya Padi page.",
+      fileName,
+    };
+  }
+
+  const result = source.result && typeof source.result === "object" ? (source.result as Record<string, unknown>) : {};
+  const detection =
+    Array.isArray(source.detections) && source.detections[0] && typeof source.detections[0] === "object"
+      ? (source.detections[0] as Record<string, unknown>)
+      : {};
+  const merged = { ...result, ...detection, ...source };
+  const rawLabel = pickString(
+    merged,
+    ["disease_name", "disease", "label", "class_name", "class", "prediction", "predicted_class", "predicted_label", "name"],
+    "unknown"
+  );
+  const confidence = normalizeConfidence(merged.confidence ?? merged.score ?? merged.probability);
+  const possibleRisks = Array.isArray(source.top_predictions)
+    ? source.top_predictions
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const risk = item as Record<string, unknown>;
+          const label = asString(risk.label);
+          if (!label || label.toLowerCase() === rawLabel.toLowerCase()) return null;
+          const riskConfidence = normalizeConfidence(risk.confidence);
+          return `${toTitleCase(label)} (${riskConfidence}%)`;
+        })
+        .filter((item): item is string => Boolean(item))
+        .slice(0, 3)
+    : [];
+
+  return {
+    diseaseName: toTitleCase(rawLabel),
+    confidence,
+    status,
+    summary: pickString(
+      merged,
+      ["summary", "description", "analysis", "message", "details"],
+      `Backend scan completed for ${fileName}.`
+    ),
+    recommendation: pickString(
+      merged,
+      ["recommendation", "recommended_action", "action", "advice"],
+      "Review the affected plants in the field and compare nearby leaves before deciding on treatment."
+    ),
+    possibleRisks,
+    fileName,
+  };
 };
 
 function normalizeKeyword(word: string): string {
@@ -301,18 +448,24 @@ async function callGemini(
 }
 
 const ChatPage = () => {
-  const { ctx: farmCtx } = useFarmContext();
+  const { ctx: farmCtx, reportDisease } = useFarmContext();
   const [lang, setLang] = useState<Lang>("BM");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [showChips, setShowChips] = useState(true);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
+  const [isScanSheetOpen, setIsScanSheetOpen] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [soilMoisture, setSoilMoisture] = useState<number | null>(null);
   const [temp, setTemp] = useState<number | null>(null);
   const [lightLux, setLightLux] = useState<number | null>(null);
   const [conversationHistory, setConversationHistory] = useState<{ role: string; content: string }[]>([]);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
 
   const handleLangChange = useCallback((nextLang: Lang) => {
@@ -344,6 +497,101 @@ const ChatPage = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    return () => {
+      if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+    };
+  }, [scanPreviewUrl]);
+
+  const appendScanMessage = useCallback((result: InlineScanResult, imageUrl?: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: nextId.current++,
+        role: "assistant",
+        text: "",
+        lang,
+        involvedAgents: ["Crop Health Agent", "Disease Scanner"],
+        imageUrl,
+        imageAlt: result.fileName ? `Uploaded paddy leaf: ${result.fileName}` : "Uploaded paddy leaf",
+        scanResult: result,
+      },
+    ]);
+  }, [lang]);
+
+  const scanLeafImage = useCallback(async (file: File) => {
+    setIsScanning(true);
+    setScanError(null);
+
+    const previewUrl = URL.createObjectURL(file);
+    setScanPreviewUrl(previewUrl);
+    let messageImageUrl = previewUrl;
+
+    try {
+      const imageBase64 = await fileToDataUrl(file);
+      messageImageUrl = imageBase64;
+      const response = await fetch("/api/cv/predict", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ image_base64: imageBase64 }),
+      });
+
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const errorData = await response.json();
+          detail = typeof errorData.detail === "string" ? errorData.detail : "";
+        } catch {
+          detail = await response.text().catch(() => "");
+        }
+        throw new Error(detail || `Scan request failed with status ${response.status}.`);
+      }
+
+      const payload = await response.json();
+      const result = normalizeInlineScanResponse(payload, file.name);
+      appendScanMessage(result, imageBase64);
+
+      if (result.confidence > 0 && result.status !== "model_not_ready") {
+        reportDisease({
+          label: result.diseaseName.toLowerCase(),
+          confidence: result.confidence / 100,
+          zone: "North Zone",
+          source: "Tanya Padi Scanner",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to scan this image.";
+      setScanError(message);
+      appendScanMessage({
+        ...emptyScanResult,
+        diseaseName: "Scan unavailable",
+        status: "error",
+        summary: message,
+        recommendation: "Make sure the FastAPI backend is running, then upload the paddy leaf image again.",
+        fileName: file.name,
+      }, messageImageUrl);
+    } finally {
+      setIsScanning(false);
+    }
+  }, [appendScanMessage, reportDisease, scanPreviewUrl]);
+
+  const handleScanFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsScanSheetOpen(false);
+    scanLeafImage(file);
+    event.target.value = "";
+  };
+
+  const openScanSheet = () => {
+    if (isScanning) return;
+    setScanError(null);
+    setIsScanSheetOpen(true);
+  };
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -499,12 +747,13 @@ const ChatPage = () => {
 
   return (
     <AppLayout>
-      <div className="flex flex-col h-[calc(100vh-140px)] max-w-3xl mx-auto">
+      <div className="mx-auto max-w-3xl">
+        <section className="flex h-[calc(100vh-140px)] min-h-[620px] flex-col">
         {/* Header */}
         <div className="flex items-center justify-between py-3 px-1">
           <h2 className="font-headline text-2xl font-bold tracking-wide">
             <span className="text-on-tertiary-container">Tanya</span>{" "}
-            <span className="text-primary italic">SmartPaddy</span>{" "}
+            <span className="text-primary italic">Padi</span>{" "}
             <span>{EMOJI_RICE}</span>
           </h2>
           <div className="flex items-center bg-surface-container-low rounded-full p-0.5 border border-outline-variant/20">
@@ -572,9 +821,89 @@ const ChatPage = () => {
                         ))}
                       </div>
                     )}
-                    <div className="prose prose-sm max-w-none prose-p:my-1 prose-li:my-0">
-                      <ReactMarkdown>{msg.text}</ReactMarkdown>
-                    </div>
+                    {msg.imageUrl && (
+                      <div className="mb-3 overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container-low">
+                        <img
+                          src={msg.imageUrl}
+                          alt={msg.imageAlt ?? "Uploaded paddy leaf"}
+                          className="max-h-56 w-full object-contain bg-black/5"
+                        />
+                      </div>
+                    )}
+                    {msg.scanResult ? (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-primary/70">
+                            Leaf Scan Result
+                          </p>
+                          <h3 className="mt-1 text-xl font-bold leading-tight text-primary">
+                            {msg.scanResult.diseaseName}
+                          </h3>
+                          <p className="mt-1 text-xs text-on-surface-variant">
+                            {msg.scanResult.fileName || "Uploaded paddy leaf"}
+                          </p>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl bg-surface-container-low px-4 py-3">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-outline">
+                              Confidence
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-primary">
+                              {msg.scanResult.confidence > 0 ? `${msg.scanResult.confidence}%` : "Not available"}
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-surface-container-low px-4 py-3">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-outline">
+                              Status
+                            </p>
+                            <p className="mt-1 text-sm font-semibold capitalize text-on-surface">
+                              {msg.scanResult.status.replace(/_/g, " ")}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-outline-variant/15 bg-white/70 px-4 py-3">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-outline">
+                            Summary
+                          </p>
+                          <p className="mt-2 text-sm leading-relaxed text-on-surface">
+                            {msg.scanResult.summary}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-primary/10 bg-primary/5 px-4 py-3">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-primary">
+                            Recommended Action
+                          </p>
+                          <p className="mt-2 text-sm leading-relaxed text-on-surface">
+                            {msg.scanResult.recommendation}
+                          </p>
+                        </div>
+
+                        {msg.scanResult.possibleRisks.length > 0 && (
+                          <div>
+                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-outline">
+                              Other Possible Risks
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {msg.scanResult.possibleRisks.map((risk) => (
+                                <span
+                                  key={risk}
+                                  className="rounded-full border border-outline-variant/20 bg-surface-container-low px-3 py-1 text-xs font-semibold text-primary"
+                                >
+                                  {risk}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="prose prose-sm max-w-none prose-p:my-1 prose-li:my-0">
+                        <ReactMarkdown>{msg.text}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                   <span className="text-[10px] text-outline mt-1 inline-block ml-1 uppercase font-label font-medium tracking-wider">
                     {msg.lang}
@@ -661,23 +990,146 @@ const ChatPage = () => {
         {/* Input */}
         <form onSubmit={handleSubmit} className="flex items-center gap-2 px-1 pb-1">
           <input
-            className="flex-1 bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-3 text-sm placeholder:text-outline/50 focus:outline-none focus:ring-1 focus:ring-primary transition-all"
+            className="min-w-0 flex-1 bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-3 text-sm placeholder:text-outline/50 focus:outline-none focus:ring-1 focus:ring-primary transition-all"
             placeholder={PLACEHOLDERS[lang]}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={isTyping}
           />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={openScanSheet}
+                disabled={isScanning}
+                className="flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-primary/15 bg-surface-container-low px-3 text-xs font-bold text-primary transition-all hover:bg-primary/10 active:scale-95 disabled:opacity-60 sm:px-4"
+                aria-label="Scan paddy leaf for disease classification"
+              >
+                {isScanning ? (
+                  <>
+                    <span className="material-symbols-outlined animate-spin text-base">progress_activity</span>
+                    <span className="hidden sm:inline">Scanning</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="hidden sm:inline">Scan Leaf</span>
+                    <span className="text-base" aria-hidden="true">{"\u{1F33F}"}</span>
+                  </>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[220px] text-xs leading-relaxed">
+              Scan a paddy leaf photo for disease classification and add the result to the crop-health agent.
+            </TooltipContent>
+          </Tooltip>
           <button
             type="submit"
             disabled={isTyping || !input.trim()}
-            className="bg-primary text-primary-foreground w-11 h-11 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+            className="bg-primary text-primary-foreground w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
           >
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
               send
             </span>
           </button>
         </form>
+        </section>
       </div>
+
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleScanFileChange}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleScanFileChange}
+      />
+
+      {isScanSheetOpen && (
+        <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/35 px-4 pb-4 backdrop-blur-sm">
+          <button
+            type="button"
+            className="absolute inset-0 cursor-default"
+            aria-label="Close scan sheet"
+            onClick={() => setIsScanSheetOpen(false)}
+          />
+          <section className="relative w-full max-w-md rounded-t-[2rem] rounded-b-3xl border border-outline-variant/20 bg-surface-container-lowest p-5 shadow-2xl">
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-outline-variant/50" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Paddy Disease Scanner</p>
+                <h3 className="mt-1 font-headline text-2xl font-bold text-primary">Scan Paddy Leaf</h3>
+                <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
+                  Upload or capture a clear paddy leaf photo for disease classification. Tanya Padi will return the likely class, confidence, and next field action.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsScanSheetOpen(false)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container-low text-on-surface-variant transition-colors hover:bg-surface-container-high"
+                aria-label="Close"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {scanPreviewUrl && (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container-low">
+                <img src={scanPreviewUrl} alt="Latest uploaded paddy leaf" className="h-32 w-full object-contain bg-black/5 p-2" />
+              </div>
+            )}
+
+            <div className="mt-5 grid gap-3">
+              <button
+                type="button"
+                onClick={() => galleryInputRef.current?.click()}
+                disabled={isScanning}
+                className="flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-white px-4 py-4 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98] disabled:opacity-60"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <span className="material-symbols-outlined">photo_library</span>
+                </span>
+                <span>
+                  <span className="block text-sm font-bold text-primary">Upload Photo</span>
+                  <span className="block text-xs text-on-surface-variant">Select an existing paddy leaf image.</span>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                disabled={isScanning}
+                className="flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-white px-4 py-4 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98] disabled:opacity-60"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <span className="material-symbols-outlined">photo_camera</span>
+                </span>
+                <span>
+                  <span className="block text-sm font-bold text-primary">Open Camera</span>
+                  <span className="block text-xs text-on-surface-variant">Take a fresh field photo of the leaf.</span>
+                </span>
+              </button>
+            </div>
+
+            {isScanning && (
+              <p className="mt-4 rounded-xl bg-primary/10 px-3 py-2 text-xs font-semibold text-primary">
+                Running backend disease scan...
+              </p>
+            )}
+            {scanError && (
+              <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {scanError}
+              </p>
+            )}
+          </section>
+        </div>
+      )}
     </AppLayout>
   );
 };

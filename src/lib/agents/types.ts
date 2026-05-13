@@ -27,6 +27,7 @@ export type AgentId =
   | "yield-forecast"
   | "orchestrator"
   | "scenario-engine"
+  | "synthesizer"
   | "advisory";
 
 export type AgentStatus = "idle" | "running" | "done" | "error";
@@ -136,14 +137,6 @@ export type GoalType =
   | "minimize_cost"
   | "optimize_water"
   | "balanced";
-
-export type AgentId =
-  | "field-monitor"
-  | "weather-disaster"
-  | "crop-health"
-  | "economic-intel"
-  | "yield-forecast"
-  | "synthesizer";
 
 export interface UserGoal {
   type: GoalType;

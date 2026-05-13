@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,7 +11,6 @@ import LoginPage from "./pages/LoginPage";
 import ScenarioExplorerPage from "./pages/ScenarioExplorerPage";
 import ChatPage from "./pages/ChatPage";
 import MapPage from "./pages/MapPage";
-import ScannerPage from "./pages/ScannerPage";
 import ProfilePage from "./pages/ProfilePage";
 import NotFound from "./pages/NotFound";
 
@@ -36,7 +35,7 @@ const App = () => (
               <Route path="/scenarios" element={<ProtectedRoute><ScenarioExplorerPage /></ProtectedRoute>} />
               <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
               <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
-              <Route path="/scanner" element={<ProtectedRoute><ScannerPage /></ProtectedRoute>} />
+              <Route path="/scanner" element={<ProtectedRoute><Navigate to="/chat" replace /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
