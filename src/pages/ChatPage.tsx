@@ -14,7 +14,6 @@ import type { FarmContext } from "@/lib/agents/types";
 type Lang = "BM" | "EN";
 type DocumentLanguage = "bm" | "en";
 const EMOJI_RICE = "\u{1F33E}";
-const EMOJI_HERB = "\u{1F33F}";
 const EMOJI_DROPLET = "\u{1F4A7}";
 const EMOJI_THERMOMETER = "\u{1F321}\uFE0F";
 const EMOJI_SUN = "\u2600\uFE0F";
@@ -803,8 +802,12 @@ const ChatPage = () => {
               </div>
             ) : (
               <div key={msg.id} className="flex gap-2.5 items-start">
-                <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 text-lg">
-                  {EMOJI_HERB}
+                <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 overflow-hidden border border-primary/10 shadow-sm">
+                  <img
+                    src="/smartpaddy-buffalo-avatar.svg"
+                    alt="SmartPaddy buffalo assistant"
+                    className="h-full w-full object-cover"
+                  />
                 </div>
                 <div className="max-w-[80%]">
                   <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-surface-container-lowest text-on-surface text-sm leading-relaxed shadow-sm border border-outline-variant/10">
@@ -916,8 +919,12 @@ const ChatPage = () => {
           {/* Typing indicator & Active Agents */}
           {(isTyping || activeAgents.length > 0) && (
             <div className="flex gap-2.5 items-start">
-              <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 text-lg">
-                {EMOJI_HERB}
+              <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center shrink-0 overflow-hidden border border-primary/10 shadow-sm">
+                <img
+                  src="/smartpaddy-buffalo-avatar.svg"
+                  alt="SmartPaddy buffalo assistant"
+                  className="h-full w-full object-cover"
+                />
               </div>
               <div className="flex flex-col gap-2">
                 <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-surface-container-lowest border border-outline-variant/10 shadow-sm w-fit">
