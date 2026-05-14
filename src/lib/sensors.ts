@@ -7,6 +7,7 @@ export type NormalizedSensors = {
   temperature: number | null;
   waterLevel: number | null;
   timestamp: string | null;
+  source?: string | null;
   sourceKeys: string[];
   hasAnySensorValue: boolean;
 };
@@ -18,6 +19,15 @@ const SENSOR_ALIASES = {
   temperature: ["temperature", "temp", "air_temperature"],
   waterLevel: ["water_level", "waterLevel", "water", "level", "distance"],
   timestamp: ["timestamp", "updated_at", "last_updated", "created_at", "time"],
+  source: ["source", "sensor_source", "feed_source"],
+} as const;
+
+const SENSOR_RANGES = {
+  humidity: { min: 20, max: 100 },
+  lightIntensity: { min: 0, max: 120000 },
+  soilMoisture: { min: 0, max: 100 },
+  temperature: { min: 15, max: 45 },
+  waterLevel: { min: 0, max: 50 },
 } as const;
 
 const MIN_VALID_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
@@ -30,6 +40,15 @@ const toNumber = (value: unknown): number | null => {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+};
+
+const toSource = (value: unknown): string | null =>
+  typeof value === "string" && value.trim() ? value.trim() : null;
+
+const toNumberInRange = (range: { min: number; max: number }) => (value: unknown): number | null => {
+  const parsed = toNumber(value);
+  if (parsed === null) return null;
+  return parsed >= range.min && parsed <= range.max ? parsed : null;
 };
 
 const normalizeTimestampMs = (value: number): number | null => {
@@ -142,32 +161,41 @@ const findFirstMatch = (
 const normalizeSingleSensorPayload = (payload: unknown): NormalizedSensors => {
   const entries = flattenEntries(payload);
   const humidity = findFirstMatch(entries, SENSOR_ALIASES.humidity, toNumber);
-  const lightIntensity = findFirstMatch(entries, SENSOR_ALIASES.lightIntensity, toNumber);
-  const soilMoisture = findFirstMatch(entries, SENSOR_ALIASES.soilMoisture, toNumber);
-  const temperature = findFirstMatch(entries, SENSOR_ALIASES.temperature, toNumber);
-  const waterLevel = findFirstMatch(entries, SENSOR_ALIASES.waterLevel, toNumber);
+  const lightIntensity = findFirstMatch(entries, SENSOR_ALIASES.lightIntensity, toNumberInRange(SENSOR_RANGES.lightIntensity));
+  const soilMoisture = findFirstMatch(entries, SENSOR_ALIASES.soilMoisture, toNumberInRange(SENSOR_RANGES.soilMoisture));
+  const temperature = findFirstMatch(entries, SENSOR_ALIASES.temperature, toNumberInRange(SENSOR_RANGES.temperature));
+  const waterLevel = findFirstMatch(entries, SENSOR_ALIASES.waterLevel, toNumberInRange(SENSOR_RANGES.waterLevel));
   const timestamp = findFirstMatch(entries, SENSOR_ALIASES.timestamp, toTimestamp);
+  const source = findFirstMatch(entries, SENSOR_ALIASES.source, toSource);
+  const normalizedHumidity = toNumberInRange(SENSOR_RANGES.humidity)(humidity.value);
+  const normalizedLightIntensity = lightIntensity.value as number | null;
+  const normalizedSoilMoisture = soilMoisture.value as number | null;
+  const normalizedTemperature = temperature.value as number | null;
+  const normalizedWaterLevel = waterLevel.value as number | null;
 
   return {
-    humidity: humidity.value as number | null,
-    lightIntensity: lightIntensity.value as number | null,
-    soilMoisture: soilMoisture.value as number | null,
-    temperature: temperature.value as number | null,
-    waterLevel: waterLevel.value as number | null,
+    humidity: normalizedHumidity,
+    lightIntensity: normalizedLightIntensity,
+    soilMoisture: normalizedSoilMoisture,
+    temperature: normalizedTemperature,
+    waterLevel: normalizedWaterLevel,
     timestamp: (timestamp.value as string | null) ?? new Date().toISOString(),
+    source: source.value as string | null,
     sourceKeys: [
       humidity.path,
       lightIntensity.path,
       soilMoisture.path,
       temperature.path,
       waterLevel.path,
+      source.path,
+      source.value,
     ].filter((value): value is string => Boolean(value)),
     hasAnySensorValue: [
-      humidity.value,
-      lightIntensity.value,
-      soilMoisture.value,
-      temperature.value,
-      waterLevel.value,
+      normalizedHumidity,
+      normalizedLightIntensity,
+      normalizedSoilMoisture,
+      normalizedTemperature,
+      normalizedWaterLevel,
     ].some((value) => value !== null),
   };
 };

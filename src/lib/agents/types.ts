@@ -242,6 +242,25 @@ export interface ExplainableRecommendation {
   }[];
 }
 
+export interface FarmProfile {
+  fieldName?: string;
+  fieldAreaHa?: number;
+  region?: string;
+  country?: string;
+  currency?: string;
+  preferredLanguage?: "EN" | "BM";
+  processingPartnerName?: string;
+  processingPartnerBooked?: boolean;
+}
+
+export interface RegionContext {
+  region?: string;
+  state?: string;
+  country?: string;
+  currency?: string;
+  language?: "EN" | "BM";
+}
+
 // ── Full Farm Context ───────────────────────────────────────
 
 export type OrchestratorPhase =
@@ -258,6 +277,8 @@ export interface FarmContext {
   timestamp: string;
   farmId: string;
   cycleId: string; // unique per orchestration cycle
+  farmProfile: FarmProfile | null;
+  regionContext: RegionContext | null;
 
   // Phase tracking
   phase: OrchestratorPhase;
@@ -268,6 +289,7 @@ export interface FarmContext {
 
   // Layer 2: Agent Findings
   findings: AgentFinding[];
+  safetyFindings: AgentFinding[];
 
   // Layer 3: Synthesized Intelligence
   riskProfile: RiskProfile | null;
@@ -298,6 +320,8 @@ export function createEmptyFarmContext(): FarmContext {
     timestamp: new Date().toISOString(),
     farmId: "smartpaddy-my-01",
     cycleId: crypto.randomUUID(),
+    farmProfile: null,
+    regionContext: null,
     phase: "idle",
     agentStatuses: [
       { id: "field-monitor", name: "Field Monitor", icon: "sensors", status: "idle", lastRunAt: null, durationMs: null },
@@ -309,6 +333,7 @@ export function createEmptyFarmContext(): FarmContext {
     ],
     perception: null,
     findings: [],
+    safetyFindings: [],
     riskProfile: null,
     yieldEstimate: null,
     userGoal: DEFAULT_USER_GOAL,

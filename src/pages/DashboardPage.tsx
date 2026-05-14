@@ -65,7 +65,7 @@ type TrendPoint = {
 };
 
 type SensorPill = {
-  labelKey: string;
+  labelKey: Parameters<ReturnType<typeof useLanguage>["t"]>[0];
   className: string;
   label: string;
 };
@@ -345,11 +345,11 @@ const DashboardPage = () => {
   const humidityPill = getSensorPill("humidity", sensors.humidity);
   const lightPill = getSensorPill("light", sensors.lightIntensity);
   const waterPill = getSensorPill("water", sensors.waterLevel);
-    const soilPillLabel = t(soilPill.labelKey as any);
-    const temperaturePillLabel = t(temperaturePill.labelKey as any);
-    const humidityPillLabel = t(humidityPill.labelKey as any);
-    const lightPillLabel = t(lightPill.labelKey as any);
-    const waterPillLabel = t(waterPill.labelKey as any);
+    const soilPillLabel = t(soilPill.labelKey);
+    const temperaturePillLabel = t(temperaturePill.labelKey);
+    const humidityPillLabel = t(humidityPill.labelKey);
+    const lightPillLabel = t(lightPill.labelKey);
+    const waterPillLabel = t(waterPill.labelKey);
 
     const soilPillFull: SensorPill = { labelKey: soilPill.labelKey, className: soilPill.className, label: soilPillLabel };
     const temperaturePillFull: SensorPill = { labelKey: temperaturePill.labelKey, className: temperaturePill.className, label: temperaturePillLabel };

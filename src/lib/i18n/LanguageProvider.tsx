@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import type { Locale } from "./translations";
+import type { Locale, LocaleKey } from "./translations";
 import { t as translate } from "./translations";
 
 type Lang = "BM" | "EN";
@@ -19,12 +19,18 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved === "EN" || saved === "BM") return saved;
-    } catch {}
+    } catch {
+      // Ignore storage access failures and fall back to English.
+    }
     return "EN";
   });
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, lang); } catch {}
+    try {
+      localStorage.setItem(STORAGE_KEY, lang);
+    } catch {
+      // Ignore storage access failures; language still works in memory.
+    }
   }, [lang]);
 
   const setLang = (l: Lang) => setLangState(l);
@@ -34,7 +40,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLang,
     t: (key: string) => {
       const locale = lang === "EN" ? "en" : "bm";
-      return translate(locale as any, key as any) ?? key;
+      return translate(locale as Locale, key as LocaleKey) ?? key;
     },
   }), [lang]);
 

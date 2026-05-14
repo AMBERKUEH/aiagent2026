@@ -10,6 +10,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import type {
   AgentFinding,
+  AgentId,
   ExplainableRecommendation,
   GoalType,
   ReasoningChainLink,
@@ -452,7 +453,7 @@ export async function buildExplainableRecommendation(
     .map(([agentId, weight]) => {
       const f = findings.find(f2 => f2.agentId === agentId);
       return {
-        agent: agentId as any,
+        agent: agentId as AgentId,
         agentName: f?.agentName ?? agentId,
         finding: f?.finding ?? "",
         weight: Math.round((weight / totalWeight) * 100) / 100,

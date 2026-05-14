@@ -72,6 +72,12 @@ export default function CommandCenterPage() {
 
   const recommendation = ctx.recommendation;
   const findings = ctx.findings;
+  const sensorSourceLabel =
+    latestSensors?.source === "demo_sensor_feed" || latestSensors?.sourceKeys.includes("demo_sensor_feed")
+      ? "Sensor source: Demo Sensor Feed"
+      : latestSensors?.source
+        ? `Sensor source: ${latestSensors.source}`
+        : null;
 
   // Build actionable items from agent findings
   const actionItems = useMemo(() => {
@@ -147,7 +153,7 @@ export default function CommandCenterPage() {
 
   // Confidence & risk from recommendation
   const confidence = recommendation
-    ? Math.round((recommendation.chain[0] as any)?.confidence ?? 82)
+    ? Math.round((recommendation.contributors[0]?.weight ?? 0.82) * 100)
     : null;
   const riskLevel = ctx.riskProfile
     ? ctx.riskProfile.overallRisk > 60
@@ -223,11 +229,11 @@ export default function CommandCenterPage() {
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-2">
                         <span className="material-symbols-outlined text-blue-500 text-sm">water_drop</span>
-                        <span className="text-xs text-slate-700">{(recommendation.chain[0] as any).because ?? "Soil moisture is high"}</span>
+                        <span className="text-xs text-slate-700">{recommendation.chain[0].because ?? "Soil moisture is high"}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="material-symbols-outlined text-cyan-500 text-sm">rainy</span>
-                        <span className="text-xs text-slate-700">{(recommendation.chain[0] as any).whichMeans ?? "Rain risk in next 48 hours"}</span>
+                        <span className="text-xs text-slate-700">{recommendation.chain[0].whichMeans ?? "Rain risk in next 48 hours"}</span>
                       </div>
                     </div>
                   )}
@@ -324,6 +330,11 @@ export default function CommandCenterPage() {
                 </span>
               </div>
             </div>
+            {sensorSourceLabel && (
+              <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                {sensorSourceLabel}
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               {sensorDisplayCards.map((card) => (
                 <div

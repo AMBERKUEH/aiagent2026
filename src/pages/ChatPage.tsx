@@ -797,7 +797,7 @@ async function callGroq(
       // 3. Inject Context: Simulation result added to prompt
       const fullUserMessage = `${languageLine}\n\n${sensorLine}\n\n${agentContext}\n\n${simulationContext}\n\n${ragLine}\n\nFarmer's question: ${text.trim()}`;
 
-      let isOffline = false;
+      const isOffline = false;
       const botMsgId = nextId.current++;
 
       // Create a temporary message for streaming

@@ -4,6 +4,22 @@
 
 import type { AgentFinding, MarketSnapshot } from "./types";
 
+type MarketApiFertilizer = {
+  name?: unknown;
+  priceRM?: unknown;
+  price?: unknown;
+  trend?: unknown;
+  weeklyChangePct?: unknown;
+  weekly_change_pct?: unknown;
+};
+
+type MarketApiResponse = {
+  fertilizers?: unknown;
+  paddyPricePerKgRM?: unknown;
+  paddy_price_per_kg_rm?: unknown;
+  demandLevel?: unknown;
+};
+
 let findingCounter = 0;
 function nextId(): string {
   return `ei-${++findingCounter}-${Date.now()}`;
@@ -50,13 +66,13 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
       return unavailableMarket(`Market API returned ${response.status}.`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as MarketApiResponse;
     const fertilizers = Array.isArray(data.fertilizers) ? data.fertilizers : [];
 
     return {
       status: "available",
       fertilizers: fertilizers
-        .map((item: any) => ({
+        .map((item: MarketApiFertilizer) => ({
           name: String(item.name ?? ""),
           priceRM: Number(item.priceRM ?? item.price ?? 0),
           trend: item.trend === "up" || item.trend === "down" ? item.trend : "stable",

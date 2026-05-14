@@ -28,6 +28,11 @@ import { createEmptyFarmContext, DEFAULT_USER_GOAL } from "./types";
 
 export type OrchestratorListener = (ctx: FarmContext) => void;
 
+type SmartPaddyDebugWindow = Window & {
+  triggerDisaster?: (active?: boolean) => void;
+  triggerDisease?: (label: string, confidence?: number) => void;
+};
+
 // ── Orchestrator class ──────────────────────────────────────
 
 export class Orchestrator {
@@ -41,10 +46,10 @@ export class Orchestrator {
     this.context = createEmptyFarmContext();
     // Expose to window for manual testing of Synthesizer Agent
     if (typeof window !== "undefined") {
-      (window as any).triggerDisaster = (active: boolean = true) => {
+      (window as SmartPaddyDebugWindow).triggerDisaster = (active: boolean = true) => {
         this.triggerMockDisaster(active);
       };
-      (window as any).triggerDisease = (label: string, confidence: number = 0.85) => {
+      (window as SmartPaddyDebugWindow).triggerDisease = (label: string, confidence: number = 0.85) => {
         this.updateDiseases([{
           label,
           confidence,

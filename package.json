@@ -20,6 +20,7 @@
     "fetch:rag": "node scripts/fetch-rag-sources.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
+    "sensors:demo": "node scripts/demo-sensor-feed.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "upload:docs": "node scripts/upload-agriculture-docs.mjs"

@@ -15,9 +15,9 @@ async function listModels() {
         console.error("Failed to fetch models:", response.status, await response.text());
         return;
     }
-    const data = await response.json();
+    const data = await response.json() as { models?: { name: string }[] };
     console.log("Available models:");
-    data.models.forEach((model: any) => {
+    data.models?.forEach((model) => {
       console.log(`- ${model.name}`);
     });
   } catch (error) {
