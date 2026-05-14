@@ -9,6 +9,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 import { generateScenarioTree } from "@/lib/agents/scenarioEngine";
 import type { FarmContext } from "@/lib/agents/types";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import SidebarNav from "@/components/SidebarNav";
+import AgentPanel from "@/components/AgentPanel";
 
 type Lang = "BM" | "EN";
 type DocumentLanguage = "bm" | "en";
@@ -499,7 +502,11 @@ async function callGroq(
 }
   export const TanyaPadiChatPanel = ({ compact = false, onClose }: { compact?: boolean; onClose?: () => void }) => {
     const { ctx: farmCtx, reportDisease } = useFarmContext();
-    const { lang, setLang } = useLanguage();
+    const { lang, setLang, t } = useLanguage();
+    const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [agentPanelOpen, setAgentPanelOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
@@ -606,6 +613,15 @@ async function callGroq(
       if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
     };
   }, [scanPreviewUrl]);
+
+  useEffect(() => {
+    if (searchParams.get("scanner") !== "1") return;
+    setScanError(null);
+    setIsScanSheetOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("scanner");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const appendScanMessage = useCallback((result: InlineScanResult, imageUrl?: string) => {
     setMessages((prev) => [
@@ -852,7 +868,51 @@ async function callGroq(
 
   return (
     <>
-      <div className={compact ? "h-full" : "mx-auto max-w-3xl"}>
+      {!compact && (
+        <>
+          <header className="fixed top-0 w-full z-[1001] bg-white/80 backdrop-blur-xl border-b border-slate-100/60 flex justify-between items-center px-4 py-3">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-slate-100 transition-colors active:scale-95"
+              id="hamburger-menu-btn"
+            >
+              <span className="material-symbols-outlined text-slate-700">menu</span>
+            </button>
+
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
+                <span className="material-symbols-outlined text-white text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  agriculture
+                </span>
+              </div>
+              <h1 className="text-base font-bold text-primary font-headline tracking-wide">{t("smartpaddy_name")}</h1>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setAgentPanelOpen(true)}
+                className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-slate-100 transition-colors active:scale-95 relative"
+                id="agent-panel-btn"
+                title={t("ask_smartpaddy")}
+              >
+                <span className="material-symbols-outlined text-slate-700">chevron_left</span>
+                <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              </button>
+              <button
+                onClick={() => navigate("/settings")}
+                className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-slate-100 transition-colors active:scale-95"
+                id="settings-btn"
+                title={t("settings")}
+              >
+                <span className="material-symbols-outlined text-slate-700">settings</span>
+              </button>
+            </div>
+          </header>
+          <SidebarNav isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          <AgentPanel isOpen={agentPanelOpen} onClose={() => setAgentPanelOpen(false)} />
+        </>
+      )}
+      <div className={compact ? "h-full" : "mx-auto max-w-3xl pt-16"}>
         <section className={`flex ${shellHeightClass} flex-col`}>
         {/* Header */}
         <div className={`flex items-center justify-between px-1 ${compact ? "py-2" : "py-3"}`}>

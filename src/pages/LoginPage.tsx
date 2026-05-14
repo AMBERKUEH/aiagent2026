@@ -1,10 +1,6 @@
 import { useAuth, type AuthMode } from "@/lib/auth/AuthProvider";
 import { useEffect, useState, type FormEvent } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
-
-type LocationState = {
-  from?: { pathname?: string };
-};
+import { Navigate, useNavigate } from "react-router-dom";
 
 const friendlyAuthError = (message: string) => {
   if (message.includes("auth/invalid-credential") || message.includes("auth/wrong-password")) {
@@ -25,9 +21,7 @@ const friendlyAuthError = (message: string) => {
 export default function LoginPage() {
   const { user, isAuthLoading, signIn, signUp } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const state = location.state as LocationState | null;
-  const redirectTo = state?.from?.pathname ?? "/";
+  const redirectTo = "/";
 
   const [mode, setMode] = useState<AuthMode>("signin");
   const [email, setEmail] = useState("");

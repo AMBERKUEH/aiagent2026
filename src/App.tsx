@@ -14,6 +14,7 @@ import ProfilePage from "./pages/ProfilePage";
 import DashboardPage from "./pages/DashboardPage";
 import SettingsPage from "./pages/SettingsPage";
 import HarvestPage from "./pages/HarvestPage";
+import ChatPage from "./pages/ChatPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,9 +36,9 @@ const App = () => (
               <Route path="/login" element={<LoginPage />} />
               <Route path="/" element={<ProtectedRoute><CommandCenterPage /></ProtectedRoute>} />
               <Route path="/scenarios" element={<ProtectedRoute><ScenarioExplorerPage /></ProtectedRoute>} />
-              <Route path="/chat" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
+              <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
               <Route path="/map" element={<ProtectedRoute><MapPage /></ProtectedRoute>} />
-              <Route path="/scanner" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
+              <Route path="/scanner" element={<ProtectedRoute><Navigate to="/chat?scanner=1" replace /></ProtectedRoute>} />
               <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
               <Route path="/sensors" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
               <Route path="/harvest" element={<ProtectedRoute><HarvestPage /></ProtectedRoute>} />
