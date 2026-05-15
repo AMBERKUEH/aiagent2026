@@ -38,8 +38,10 @@ backend/cv/models/checkpoint/
 .git/
 .gitignore
 
-# Env (Allowing temporarily for build-time injection)
-# .env and .env.local removed from ignore to allow Vite to bake them in
+# Env and local secrets never enter the Docker build context.
+.env
+.env.*
+!.env.example
 
 # Docker
 Dockerfile

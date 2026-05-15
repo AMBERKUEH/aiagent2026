@@ -1,8 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import { runtimeConfig } from "@/lib/runtimeConfig";
 
 export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
+  runtimeConfig.VITE_SUPABASE_URL ?? "",
+  runtimeConfig.VITE_SUPABASE_ANON_KEY ?? ""
 );
 
 type AgricultureDocRow = {

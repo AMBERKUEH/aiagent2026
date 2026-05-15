@@ -3,10 +3,10 @@ import sys
 from io import BytesIO
 from typing import Optional, Tuple, List, Dict, Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, APIRouter
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 import joblib
 import pandas as pd
 from PIL import Image
@@ -33,6 +33,29 @@ class PredictionRequest(BaseModel):
 class CVPredictionRequest(BaseModel):
     image_path: Optional[str] = None
     image_base64: Optional[str] = None
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class GroqCompletionRequest(BaseModel):
+    messages: List[ChatMessage]
+    model: str = "llama-3.3-70b-versatile"
+    temperature: float = 0.4
+
+
+class GeminiGenerateRequest(BaseModel):
+    prompt: str
+    model: str = "gemini-flash-latest"
+
+
+def get_required_env(name: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise HTTPException(status_code=503, detail=f"{name} is not configured")
+    return value
 
 
 def load_bundle() -> Dict[str, Any]:
@@ -261,6 +284,78 @@ def detect_disease_alias(image: Optional[UploadFile] = File(default=None), file:
     return _predict_from_uploaded_image(image=image, file=file)
 
 
+@router.post("/llm/groq")
+def groq_completion(request: GroqCompletionRequest) -> Dict[str, Any]:
+    api_key = get_required_env("GROQ_API_KEY")
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            json={
+                "model": request.model,
+                "temperature": request.temperature,
+                "messages": [message.model_dump() for message in request.messages],
+            },
+            timeout=30,
+        )
+        if not response.ok:
+            print(f"Groq request failed with status {response.status_code}")
+            raise HTTPException(status_code=502, detail=f"Groq request failed with status {response.status_code}")
+        response.raise_for_status()
+        data = response.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        return {"text": text}
+    except HTTPException:
+        raise
+    except requests.RequestException as exc:
+        print(f"Groq request failed with exception {type(exc).__name__}")
+        raise HTTPException(status_code=502, detail="Groq request failed") from exc
+
+
+@router.post("/llm/gemini")
+def gemini_generate(request: GeminiGenerateRequest) -> Dict[str, Any]:
+    api_key = get_required_env("GEMINI_API_KEY")
+    try:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{request.model}:generateContent",
+            params={"key": api_key},
+            json={"contents": [{"parts": [{"text": request.prompt}]}]},
+            timeout=30,
+        )
+        if not response.ok:
+            print(f"Gemini request failed with status {response.status_code}")
+            raise HTTPException(status_code=502, detail=f"Gemini request failed with status {response.status_code}")
+        response.raise_for_status()
+        data = response.json()
+        candidates = data.get("candidates", [])
+        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+        text = "".join(part.get("text", "") for part in parts)
+        return {"text": text}
+    except HTTPException:
+        raise
+    except requests.RequestException as exc:
+        print(f"Gemini request failed with exception {type(exc).__name__}")
+        raise HTTPException(status_code=502, detail="Gemini request failed") from exc
+
+
+@router.get("/weather/forecast")
+def weather_forecast(lat: float = Query(...), lon: float = Query(...)) -> Dict[str, Any]:
+    api_key = get_required_env("OPENWEATHERMAP_API_KEY")
+    try:
+        response = requests.get(
+            "https://api.openweathermap.org/data/2.5/forecast",
+            params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail="Weather request failed") from exc
+
+
 @router.get("/market")
 def get_market_data() -> dict:
     """Returns real market intelligence data fetched from global commodity markets."""
@@ -344,11 +439,29 @@ dist_path = ROOT_DIR / "dist"
 if dist_path.exists():
     app.mount("/assets", StaticFiles(directory=str(dist_path / "assets")), name="assets")
 
+    @app.get("/env.js")
+    async def serve_runtime_env():
+        env_file = dist_path / "env.js"
+        if env_file.exists():
+            return FileResponse(str(env_file), media_type="application/javascript")
+        raise HTTPException(status_code=404, detail="Runtime config not found")
+
+    @app.get("/smartpaddy-favicon.jpeg")
+    async def serve_favicon():
+        favicon_file = dist_path / "smartpaddy-favicon.jpeg"
+        if favicon_file.exists():
+            return FileResponse(str(favicon_file), media_type="image/jpeg")
+        raise HTTPException(status_code=404, detail="Favicon not found")
+
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        # API routes are already handled above. 
-        # For anything else, if it's not an asset, serve index.html
+        # API routes are already handled above. Serve Vite root assets before
+        # falling back to index.html for client-side routes.
+        requested_file = (dist_path / full_path).resolve()
+        if requested_file.is_file() and requested_file.is_relative_to(dist_path.resolve()):
+            return FileResponse(str(requested_file))
+
         index_file = dist_path / "index.html"
         if index_file.exists():
             return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
-        return HTTPException(status_code=404, detail="Frontend not built")
+        raise HTTPException(status_code=404, detail="Frontend not built")

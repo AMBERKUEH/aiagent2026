@@ -1,14 +1,13 @@
-# This file ignores everything in .gitignore EXCEPT for .env files
-# so they can be used for build-time environment variable injection.
+# Keep local secrets and generated files out of Google Cloud Build uploads.
 
 .git
 .gitignore
 
-# Explicitly UN-IGNORE .env and .env.local
-!.env
-!.env.local
+# Never upload local env files to Cloud Build.
+.env
+.env.*
+!.env.example
 
-# Still ignore other sensitive stuff
 node_modules/
 dist/
 backend/cv/data/

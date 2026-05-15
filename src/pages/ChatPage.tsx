@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 import { generateScenarioTree } from "@/lib/agents/scenarioEngine";
 import type { FarmContext } from "@/lib/agents/types";
+import { callGroqServer } from "@/lib/serverApi";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import SidebarNav from "@/components/SidebarNav";
 import AgentPanel from "@/components/AgentPanel";
@@ -321,11 +322,6 @@ async function plannerAgentRoute(text: string): Promise<{
     rainfallIncrease?: number;
   };
 }> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) {
-    return { activeAgents: ["Orchestrator Agent", "Economic Intelligence Agent", "Weather & Disaster Agent", "Yield Forecast Agent", "Crop Health Agent"], isWhatIf: false };
-  }
-
   try {
     const prompt = `
 You are the Planner Agent for SmartPaddy. Analyze the following farmer query and determine:
@@ -357,24 +353,13 @@ If a parameter is not mentioned, omit it from extractedParams.
 
 Farmer query: "${text}"
 `;
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: "Return strict JSON only." },
-          { role: "user", content: prompt },
-        ],
-      }),
-    });
-    if (!response.ok) throw new Error(`Groq planner failed: HTTP ${response.status}`);
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const responseText = data.choices?.[0]?.message?.content ?? "";
+    const responseText = await callGroqServer(
+      [
+        { role: "system", content: "Return strict JSON only." },
+        { role: "user", content: prompt },
+      ],
+      { temperature: 0.2 }
+    );
     const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
     const plan = JSON.parse(cleanJson);
     if (!Array.isArray(plan.activeAgents)) plan.activeAgents = ["Orchestrator Agent"];
@@ -469,30 +454,15 @@ async function callGroq(
   fullUserMessage: string,
   onChunk: (text: string) => void
 ): Promise<string> {
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) throw new Error("Groq API key not configured");
-
   try {
     const messages = [
       { role: "system", content: systemPrompt },
       ...conversationHistory.map((h) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.content })),
       { role: "user", content: fullUserMessage },
     ];
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.4,
-        messages,
-      }),
+    const fullText = await callGroqServer(messages as { role: "system" | "user" | "assistant"; content: string }[], {
+      temperature: 0.4,
     });
-    if (!response.ok) throw new Error(`Groq chat failed: HTTP ${response.status}`);
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const fullText = data.choices?.[0]?.message?.content ?? "";
     onChunk(fullText);
     return fullText;
   } catch (error) {

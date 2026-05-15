@@ -1,6 +1,7 @@
 import AppLayout from "@/components/AppLayout";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
+import { callGroqServer } from "@/lib/serverApi";
 
 type ScanResult = {
   diseaseName: string;
@@ -355,9 +356,6 @@ const enrichScanResultWithGroq = async (
 ): Promise<Partial<ScanResult> | null> => {
   if (baseResult.backendStatus === "model_not_ready") return null;
 
-  const apiKey = import.meta.env.VITE_GROQ_API_KEY;
-  if (!apiKey) return null;
-
   try {
     const systemPrompt = "You are an agronomy assistant. Return JSON only with keys: severity, spreadRisk, priority, impact, recommendation, checklist. recommendation must be 3 to 5 practical sentences (at least 40 words). checklist must be an array with 4 to 6 short actionable strings.";
     
@@ -371,24 +369,13 @@ const enrichScanResultWithGroq = async (
       backend_payload: payload,
     });
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        temperature: 0.3,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `Input Data: ${userPrompt}` },
-        ],
-      }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const text = data.choices?.[0]?.message?.content ?? "";
+    const text = await callGroqServer(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Input Data: ${userPrompt}` },
+      ],
+      { temperature: 0.3 }
+    );
     
     const parsed = extractJsonObject(text);
     if (!parsed) return null;

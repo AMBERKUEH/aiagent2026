@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { AgentFinding, MarketSnapshot } from "./types";
+import { runtimeConfig } from "@/lib/runtimeConfig";
 
 type MarketApiFertilizer = {
   name?: unknown;
@@ -47,8 +48,8 @@ const generateMockMarket = (): MarketSnapshot => ({
 });
 
 export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
-  const url = import.meta.env.VITE_MARKET_API_URL;
-  const useMockFlag = String(import.meta.env.VITE_USE_MOCK_MARKET ?? "").toLowerCase() === "true";
+  const url = runtimeConfig.VITE_MARKET_API_URL ?? "/api/market";
+  const useMockFlag = String(runtimeConfig.VITE_USE_MOCK_MARKET ?? "").toLowerCase() === "true";
 
   // Development convenience: allow explicit mock flag or fall back to mock when
   // running in dev without a configured API URL.

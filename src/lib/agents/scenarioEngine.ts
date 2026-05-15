@@ -6,8 +6,6 @@
 // agronomic models, and ranks them against the user's goal.
 // ============================================================
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
 import type {
   AgentFinding,
   AgentId,
@@ -26,6 +24,7 @@ import type {
   MarketSnapshot,
   PerceptionResult,
 } from "./types";
+import { callGeminiServer } from "@/lib/serverApi";
 
 // ── Strategy archetypes ─────────────────────────────────────
 
@@ -463,19 +462,15 @@ export async function buildExplainableRecommendation(
   let finalSummary = `${recommended.name} strategy is recommended based on current conditions. Projected yield: ${recommended.projections.yieldTonPerHa.mid} t/ha. Operating cost: RM ${recommended.projections.operationalCostRM}. Goal alignment: ${recommended.goalAlignmentScore}/100.`;
   let finalSummaryBM = `Strategi ${recommended.nameBM} disyorkan berdasarkan keadaan semasa. Anggaran hasil: ${recommended.projections.yieldTonPerHa.mid} tan/hektar. Kos operasi: RM ${recommended.projections.operationalCostRM}.`;
 
-  // LLM-based Synthesizer Agent Debate
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   const currentHash = getFindingsHash(findings, userGoal);
 
-  if (apiKey && topFindings.length > 0) {
+  if (import.meta.env.MODE !== "test" && topFindings.length > 0) {
     // Check cache first to save tokens/quota
     if (currentHash === lastFindingsHash && cachedSummaryEN) {
       finalSummary = cachedSummaryEN;
       finalSummaryBM = cachedSummaryBM;
     } else {
       try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
         const conflictPrompt = `
 You are the Synthesizer Agent for SmartPaddy.
 A farm has the following conflicting agent findings:
@@ -494,8 +489,7 @@ Return ONLY a JSON object with this exact structure, without any markdown format
   "summaryBM": "..."
 }
 `;
-        const result = await model.generateContent(conflictPrompt);
-        const responseText = result.response.text();
+        const responseText = await callGeminiServer(conflictPrompt);
         const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
         const synth = JSON.parse(cleanJson);
         if (synth.summaryEN) {

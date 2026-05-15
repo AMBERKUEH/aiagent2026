@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { useFarmContext } from "@/lib/agents/FarmContextProvider";
 import ReactMarkdown from "react-markdown";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { callGeminiServer } from "@/lib/serverApi";
 
 interface ChatbotPopupProps {
   isOpen: boolean;
@@ -51,12 +51,6 @@ export default function ChatbotPopup({ isOpen, onClose, onOpenFullChat }: Chatbo
       setMessages((prev) => [...prev, { id: botMsgId, role: "assistant", text: "" }]);
 
       try {
-        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-        if (!apiKey) throw new Error("No API key");
-
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-
         // Build context
         const contextParts: string[] = [
           "You are SmartPaddy, a quick-response farming advisor. Keep answers under 3 sentences. Be direct and actionable.",
@@ -69,8 +63,7 @@ export default function ChatbotPopup({ isOpen, onClose, onOpenFullChat }: Chatbo
           contextParts.push(`Risk: Overall=${farmCtx.riskProfile.overallRisk}%, Flood=${farmCtx.riskProfile.floodRisk}%, Disease=${farmCtx.riskProfile.diseaseRisk}%`);
         }
 
-        const result = await model.generateContent(`${contextParts.join("\n")}\n\nFarmer asks: ${text.trim()}`);
-        const reply = result.response.text();
+        const reply = await callGeminiServer(`${contextParts.join("\n")}\n\nFarmer asks: ${text.trim()}`);
 
         setMessages((prev) => prev.map((m) => (m.id === botMsgId ? { ...m, text: reply } : m)));
       } catch {

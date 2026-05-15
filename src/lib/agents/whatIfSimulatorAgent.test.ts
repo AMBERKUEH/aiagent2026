@@ -126,6 +126,27 @@ describe("createWhatIfSimulatorState", () => {
     }
   });
 
+  it("uses a clearly marked demo market price instead of locking when market price is missing", () => {
+    const state = createWhatIfSimulatorState(context({
+      perception: perception({
+        market: {
+          status: "unavailable",
+          fertilizers: [],
+          paddyPricePerKgRM: null,
+          demandLevel: null,
+          source: "test-market",
+        },
+      }),
+    }), "paddy_price_drop");
+
+    expect(state.locked).toBe(false);
+    if (!state.locked) {
+      expect(state.basePriceRMPerKg).toBe(1.35);
+      expect(state.selected.dataSources.find((source) => source.label === "Market price")?.status).toBe("Demo Preview");
+      expect(state.selected.agentInfluence.find((agent) => agent.agentId === "economic-intel")?.status).toBe("Demo Preview");
+    }
+  });
+
   it("Reduce Irrigation is positive when soil moisture is high and risky when low", () => {
     const wetState = createWhatIfSimulatorState(context(), "reduce_irrigation");
     const dryState = createWhatIfSimulatorState(context({

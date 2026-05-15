@@ -140,10 +140,8 @@ export const FARM_ZONES: FarmZone[] = [
 // ── Weather API Integration ───────────────────────────────────
 
 async function fetchWeather(lat: number, lon: number): Promise<WeatherForecast> {
-  const apiKey = import.meta.env.VITE_OPENWEATHERMAP_API_KEY;
-  if (apiKey) {
-    try {
-      const url = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
+  try {
+      const url = `/api/weather/forecast?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
       const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!res.ok) throw new Error(`OWM HTTP ${res.status}`);
       const data = await res.json();
@@ -201,9 +199,8 @@ async function fetchWeather(lat: number, lon: number): Promise<WeatherForecast> 
         data_age_hours: 0,
         source: "OpenWeatherMap",
       };
-    } catch (e) {
-      console.warn("OpenWeatherMap failed, falling back to Open-Meteo", e);
-    }
+  } catch (e) {
+    console.warn("OpenWeatherMap backend failed, falling back to Open-Meteo", e);
   }
 
   return fetchOpenMeteo(lat, lon);

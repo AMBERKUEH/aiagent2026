@@ -124,6 +124,7 @@ const SAFETY_NOTE = "This is a planning simulation, not a guaranteed outcome. Ve
 const DEFAULT_FIELD_AREA_HA = 1.2;
 const DEFAULT_BASE_COST_RM = 900;
 const DEFAULT_WATER_USAGE_LITERS = 8000;
+const DEFAULT_PADDY_PRICE_RM_PER_KG = 1.35;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const round = (value: number, decimals = 1) => {
@@ -144,6 +145,21 @@ const getRegion = (ctx: FarmContext) =>
 
 const getRecommendedScenario = (ctx: FarmContext) =>
   ctx.scenarioTree?.scenarios.find((scenario) => scenario.isRecommended) ?? ctx.scenarioTree?.scenarios[0] ?? null;
+
+const getPaddyPrice = (ctx: FarmContext) => {
+  const value = ctx.perception?.market?.paddyPricePerKgRM;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? {
+        value,
+        source: "Live Agent" as DataSourceStatus,
+        detail: `RM ${value.toFixed(2)}/kg paddy reference from ${ctx.perception?.market?.source ?? "market agent"}.`,
+      }
+    : {
+        value: DEFAULT_PADDY_PRICE_RM_PER_KG,
+        source: "Demo Preview" as DataSourceStatus,
+        detail: `Market price was missing; using RM ${DEFAULT_PADDY_PRICE_RM_PER_KG.toFixed(2)}/kg demo paddy price.`,
+      };
+};
 
 const deriveBaseCost = (ctx: FarmContext) => {
   const scenario = getRecommendedScenario(ctx);
@@ -209,7 +225,7 @@ const addAgentInfluence = (ctx: FarmContext, scenarioId: WhatIfScenarioId): What
       agentId: "economic-intel",
       agentName: "Market & Cost Agent",
       contribution: scenarioId === "paddy_price_drop" ? "Reprices revenue under market shock." : "Provides paddy price context.",
-      status: ctx.perception?.market?.paddyPricePerKgRM !== null && ctx.perception?.market?.paddyPricePerKgRM !== undefined ? "Live Agent" : "Missing",
+      status: getPaddyPrice(ctx).source,
     },
     {
       agentId: "safety",
@@ -232,9 +248,6 @@ const missingRequirements = (ctx: FarmContext) => {
   const missing: string[] = [];
   if (!ctx.yieldEstimate) missing.push("Yield forecast missing");
   if (!ctx.riskProfile) missing.push("Risk profile missing");
-  if (ctx.perception?.market?.paddyPricePerKgRM === null || ctx.perception?.market?.paddyPricePerKgRM === undefined) {
-    missing.push("Market price missing");
-  }
   if (!ctx.perception?.sensors || !ctx.perception.sensors.hasAnySensorValue) missing.push("Sensor context missing");
   return missing;
 };
@@ -257,9 +270,10 @@ export function createWhatIfSimulatorState(
   const fieldArea = getFieldAreaHa(ctx);
   const baseCost = deriveBaseCost(ctx);
   const baseWaterUsage = deriveBaseWaterUsage(ctx);
+  const paddyPrice = getPaddyPrice(ctx);
   const sensors = ctx.perception!.sensors;
   const weather = ctx.perception!.weather;
-  const price = ctx.perception!.market.paddyPricePerKgRM!;
+  const price = paddyPrice.value;
   const baseYield = ctx.yieldEstimate!.adjustedPrediction;
   const baseRisk = ctx.riskProfile!.overallRisk;
   const soilMoisture = sensors.soilMoisture ?? 60;
@@ -429,7 +443,7 @@ export function createWhatIfSimulatorState(
   const dataSources: WhatIfDataSource[] = [
     { label: "Yield forecast", status: "Live Agent", detail: `${current.expectedYieldTonPerHa} t/ha adjusted yield.` },
     { label: "Risk profile", status: "Live Agent", detail: `${current.overallRisk}% overall risk from multi-agent analysis.` },
-    { label: "Market price", status: "Live Agent", detail: `RM ${price.toFixed(2)}/kg paddy reference.` },
+    { label: "Market price", status: paddyPrice.source, detail: paddyPrice.detail },
     { label: "Sensor context", status: "Live Agent", detail: `Soil ${soilMoisture}%, rainfall 48h ${rainfall48h}mm.` },
     { label: "Field area", status: fieldArea.source, detail: `${fieldArea.value} ha used for profit calculation.` },
     { label: "Operational cost", status: baseCost.source, detail: baseCost.detail },

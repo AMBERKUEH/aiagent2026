@@ -1,12 +1,10 @@
-# Stage 1: Build the React frontend
 FROM node:20-slim AS frontend-build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm ci
 COPY . .
 RUN npm run build
 
-# Stage 2: Build the Python backend
 FROM python:3.11-slim
 WORKDIR /app
 
@@ -21,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the backend code
 COPY backend ./backend
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 # Copy the built frontend from Stage 1
 COPY --from=frontend-build /app/dist ./dist
@@ -32,5 +31,5 @@ ENV PYTHONUNBUFFERED=1
 # Expose the port
 EXPOSE 8080
 
-# Command to run the application
-CMD uvicorn backend.server:app --host 0.0.0.0 --port $PORT
+ENTRYPOINT ["sh", "/app/docker-entrypoint.sh"]
+CMD ["sh", "-c", "uvicorn backend.server:app --host 0.0.0.0 --port ${PORT:-8080}"]
