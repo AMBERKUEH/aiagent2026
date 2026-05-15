@@ -6,7 +6,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from fastapi import FastAPI, File, HTTPException, UploadFile, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 import joblib
 import pandas as pd
 from PIL import Image
@@ -55,6 +55,9 @@ def get_bundle() -> dict:
         bundle_cache = load_bundle()
     except Exception as exc:
         bundle_error = exc
+        print(f"ERROR: Failed to load yield model: {exc}")
+        import traceback
+        traceback.print_exc()
         raise RuntimeError(f"Yield model is unavailable: {exc}") from exc
 
     return bundle_cache
@@ -347,7 +350,12 @@ if dist_path.exists():
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         # API routes are already handled above. 
-        # For anything else, if it's not an asset, serve index.html
+        # First, try to serve the exact file if it exists in dist (e.g. favicon.ico, images)
+        target_file = dist_path / full_path
+        if target_file.exists() and target_file.is_file():
+            return FileResponse(path=str(target_file))
+            
+        # For anything else, fallback to index.html for SPA routing
         index_file = dist_path / "index.html"
         if index_file.exists():
             return HTMLResponse(content=index_file.read_text(encoding="utf-8"))

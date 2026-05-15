@@ -511,8 +511,6 @@ async function callGroq(
     const [input, setInput] = useState("");
     const [isTyping, setIsTyping] = useState(false);
     const [showChips, setShowChips] = useState(true);
-    const [showCameraMenu, setShowCameraMenu] = useState(false);
-    const [visionBusy, setVisionBusy] = useState(false);
     const [scanError, setScanError] = useState<string | null>(null);
     const [scanPreviewUrl, setScanPreviewUrl] = useState<string | null>(null);
     const [isScanSheetOpen, setIsScanSheetOpen] = useState(false);
@@ -525,103 +523,11 @@ async function callGroq(
   const scrollRef = useRef<HTMLDivElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
   const nextId = useRef(1);
 
-  const handleVisionFile = useCallback(async (file: File, source: "camera" | "upload") => {
-    const userText = lang === "BM"
-      ? source === "camera"
-        ? `[Saya mengambil gambar daun padi: ${file.name}]`
-        : `[Saya memuat naik gambar daun padi: ${file.name}]`
-      : source === "camera"
-        ? `[I captured a paddy leaf image: ${file.name}]`
-        : `[I uploaded a paddy leaf image: ${file.name}]`;
-
-    setMessages((prev) => [...prev, { id: nextId.current++, role: "user", text: userText, lang }]);
-
-    const pendingId = nextId.current++;
-    setVisionBusy(true);
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: pendingId,
-        role: "assistant",
-        text: lang === "BM" ? "Menghantar imej ke backend CV..." : "Sending image to CV backend...",
-        lang,
-        involvedAgents: ["Crop Health Agent"],
-      },
-    ]);
-
-    try {
-      const result = await runCvPrediction(file);
-      const labelText = result.label.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-      const answer = lang === "BM"
-        ? `Keputusan imbasan: **${labelText}** (${result.confidence}% keyakinan).${result.recommendation ? `\n\nCadangan: ${result.recommendation}` : ""}`
-        : `Scan result: **${labelText}** (${result.confidence}% confidence).${result.recommendation ? `\n\nRecommendation: ${result.recommendation}` : ""}`;
-      setMessages((prev) => prev.map((m) => (m.id === pendingId ? { ...m, text: answer } : m)));
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "Unknown backend error";
-      const failText = lang === "BM"
-        ? `Imbasan CV gagal. Ralat backend: ${detail}`
-        : `CV scan failed. Backend error: ${detail}`;
-      setMessages((prev) => prev.map((m) => (m.id === pendingId ? { ...m, text: failText, isOffline: true } : m)));
-    } finally {
-      setVisionBusy(false);
-    }
-  }, [lang]);
-
-  const requestCameraPermission = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error(lang === "BM" ? "Peranti ini tidak menyokong akses kamera." : "This device does not support camera access.");
-    }
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-    stream.getTracks().forEach((track) => track.stop());
-  }, [lang]);
-
-  const handleLangChange = useCallback((nextLang: Lang) => {
-    setLang(nextLang);
-    setConversationHistory([]);
-  }, [setLang]);
-
-  // Keep the existing normalized sensor feed so dashboard/prediction behavior stays aligned.
-  useEffect(() => {
-    const sensorsRef = ref(rtdb, "/sensor_history");
-    const unsub = onValue(
-      sensorsRef,
-      (snapshot) => {
-        const sensors = normalizeSensorPayload(snapshot.val() ?? {});
-        setSoilMoisture(sensors.soilMoisture);
-        setTemp(sensors.temperature);
-        setLightLux(sensors.lightIntensity);
-      },
-      (error) => {
-        console.error("Firebase RTDB error:", error);
-      }
-    );
-    return () => unsub();
-  }, []);
-
-  // Auto-scroll
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isTyping]);
-
-  useEffect(() => {
-    return () => {
-      if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
-    };
-  }, [scanPreviewUrl]);
-
-  useEffect(() => {
-    if (searchParams.get("scanner") !== "1") return;
-    setScanError(null);
-    setIsScanSheetOpen(true);
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.delete("scanner");
-    setSearchParams(nextParams, { replace: true });
-  }, [searchParams, setSearchParams]);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [isCameraActive, setIsCameraActive] = useState(false);
 
   const appendScanMessage = useCallback((result: InlineScanResult, imageUrl?: string) => {
     setMessages((prev) => [
@@ -697,6 +603,116 @@ async function callGroq(
       setIsScanning(false);
     }
   }, [appendScanMessage, reportDisease, scanPreviewUrl]);
+
+  const startCustomCamera = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanError(lang === "BM" ? "Peranti ini tidak menyokong akses kamera." : "This device does not support camera access.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      streamRef.current = stream;
+      setIsCameraActive(true);
+      setScanError(null);
+    } catch (error) {
+      setScanError(error instanceof Error ? error.message : "Camera permission denied.");
+    }
+  }, [lang]);
+
+  const stopCustomCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+  }, []);
+
+  const takeSnapshot = useCallback(() => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    
+    // Safety check in case video isn't ready
+    if (canvas.width === 0 || canvas.height === 0) {
+      setScanError("Camera feed not ready yet.");
+      return;
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], "snapshot.jpg", { type: "image/jpeg" });
+          stopCustomCamera();
+          scanLeafImage(file);
+        }
+      }, "image/jpeg", 0.95);
+    }
+  }, [scanLeafImage, stopCustomCamera]);
+
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(console.error);
+    }
+  }, [isCameraActive]);
+
+  const handleLangChange = useCallback((nextLang: Lang) => {
+    setLang(nextLang);
+    setConversationHistory([]);
+  }, [setLang]);
+
+  // Keep the existing normalized sensor feed so dashboard/prediction behavior stays aligned.
+  useEffect(() => {
+    const sensorsRef = ref(rtdb, "/sensor_history");
+    const unsub = onValue(
+      sensorsRef,
+      (snapshot) => {
+        const sensors = normalizeSensorPayload(snapshot.val() ?? {});
+        setSoilMoisture(sensors.soilMoisture);
+        setTemp(sensors.temperature);
+        setLightLux(sensors.lightIntensity);
+      },
+      (error) => {
+        console.error("Firebase RTDB error:", error);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Auto-scroll
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, isTyping]);
+
+  useEffect(() => {
+    return () => {
+      if (scanPreviewUrl) URL.revokeObjectURL(scanPreviewUrl);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [scanPreviewUrl]);
+
+  useEffect(() => {
+    if (searchParams.get("scanner") !== "1") return;
+    setScanError(null);
+    setIsScanSheetOpen(true);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("scanner");
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+
+
+
 
   const handleScanFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1187,102 +1203,6 @@ async function callGroq(
         <form onSubmit={handleSubmit} className="flex items-center gap-2 px-1 pb-1 relative">
           {/* Hidden file inputs */}
           <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              await handleVisionFile(file, "camera");
-              if (cameraInputRef.current) cameraInputRef.current.value = "";
-            }}
-          />
-          <input
-            ref={uploadInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              await handleVisionFile(file, "upload");
-              if (uploadInputRef.current) uploadInputRef.current.value = "";
-            }}
-          />
-
-          {/* Camera button with popup */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowCameraMenu(prev => !prev)}
-              className="w-11 h-11 rounded-xl flex items-center justify-center bg-surface-container-low border border-outline-variant/20 text-slate-500 hover:text-primary hover:border-primary/30 transition-all active:scale-95"
-              title={lang === "BM" ? "Imbas daun padi" : "Scan paddy leaf"}
-            >
-              <span className="material-symbols-outlined text-lg">photo_camera</span>
-            </button>
-
-            {/* Popup menu */}
-            {showCameraMenu && (
-              <>
-                <div className="fixed inset-0 z-[100]" onClick={() => setShowCameraMenu(false)} />
-                <div className="absolute bottom-14 left-0 z-[101] w-52 rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
-                  <p className="px-4 pt-3 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    {lang === "BM" ? "Imbasan CV" : "CV Scanner"}
-                  </p>
-                  <button
-                    type="button"
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
-                    onClick={() => { setShowCameraMenu(false); uploadInputRef.current?.click(); }}
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                      <span className="material-symbols-outlined text-blue-600 text-base">upload</span>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{lang === "BM" ? "Muat Naik Gambar" : "Upload Picture"}</p>
-                      <p className="text-[10px] text-slate-400">{lang === "BM" ? "Pilih dari galeri" : "Choose from gallery"}</p>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left border-t border-slate-100"
-                    onClick={async () => {
-                      setShowCameraMenu(false);
-                      try {
-                        await requestCameraPermission();
-                        cameraInputRef.current?.click();
-                      } catch (error) {
-                        const detail = error instanceof Error ? error.message : "Camera permission denied.";
-                        setMessages((prev) => [
-                          ...prev,
-                          {
-                            id: nextId.current++,
-                            role: "assistant",
-                            lang,
-                            isOffline: true,
-                            text: lang === "BM"
-                              ? `Tidak boleh buka kamera: ${detail}`
-                              : `Unable to open camera: ${detail}`,
-                          },
-                        ]);
-                      }
-                    }}
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-emerald-50 flex items-center justify-center">
-                      <span className="material-symbols-outlined text-emerald-600 text-base">photo_camera</span>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{lang === "BM" ? "Buka Kamera" : "Open Camera"}</p>
-                      <p className="text-[10px] text-slate-400">{lang === "BM" ? "Ambil gambar langsung" : "Capture live photo"}</p>
-                    </div>
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-
-          <input
             className="min-w-0 flex-1 bg-surface-container-low border border-outline-variant/20 rounded-xl px-4 py-3 text-sm placeholder:text-outline/50 focus:outline-none focus:ring-1 focus:ring-primary transition-all"
             placeholder={PLACEHOLDERS[lang]}
             value={input}
@@ -1317,7 +1237,7 @@ async function callGroq(
           </Tooltip>
           <button
             type="submit"
-            disabled={isTyping || visionBusy || !input.trim()}
+            disabled={isTyping || !input.trim()}
             className="bg-primary text-primary-foreground w-11 h-11 shrink-0 rounded-xl flex items-center justify-center transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
           >
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -1364,7 +1284,10 @@ async function callGroq(
               </div>
               <button
                 type="button"
-                onClick={() => setIsScanSheetOpen(false)}
+                onClick={() => {
+                  stopCustomCamera();
+                  setIsScanSheetOpen(false);
+                }}
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-container-low text-on-surface-variant transition-colors hover:bg-surface-container-high"
                 aria-label="Close"
               >
@@ -1379,35 +1302,67 @@ async function callGroq(
             )}
 
             <div className="mt-5 grid gap-3">
-              <button
-                type="button"
-                onClick={() => galleryInputRef.current?.click()}
-                disabled={isScanning}
-                className="flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-white px-4 py-4 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98] disabled:opacity-60"
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <span className="material-symbols-outlined">photo_library</span>
-                </span>
-                <span>
-                  <span className="block text-sm font-bold text-primary">Upload Photo</span>
-                  <span className="block text-xs text-on-surface-variant">Select an existing paddy leaf image.</span>
-                </span>
-              </button>
+              {isCameraActive ? (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative w-full overflow-hidden rounded-2xl bg-black aspect-video">
+                    <video
+                      ref={videoRef}
+                      playsInline
+                      muted
+                      autoPlay
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="flex gap-2 w-full">
+                    <button
+                      type="button"
+                      onClick={stopCustomCamera}
+                      className="flex-1 rounded-xl bg-surface-container-high py-3 font-semibold text-on-surface transition-colors hover:bg-outline-variant/30"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={takeSnapshot}
+                      className="flex-1 rounded-xl bg-primary py-3 font-semibold text-primary-foreground transition-colors hover:bg-primary/90 shadow-md"
+                    >
+                      Capture Photo
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    disabled={isScanning}
+                    className="flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-white px-4 py-4 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98] disabled:opacity-60"
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <span className="material-symbols-outlined">photo_library</span>
+                    </span>
+                    <span>
+                      <span className="block text-sm font-bold text-primary">Upload Photo</span>
+                      <span className="block text-xs text-on-surface-variant">Select an existing paddy leaf image.</span>
+                    </span>
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                disabled={isScanning}
-                className="flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-white px-4 py-4 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98] disabled:opacity-60"
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <span className="material-symbols-outlined">photo_camera</span>
-                </span>
-                <span>
-                  <span className="block text-sm font-bold text-primary">Open Camera</span>
-                  <span className="block text-xs text-on-surface-variant">Take a fresh field photo of the leaf.</span>
-                </span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={startCustomCamera}
+                    disabled={isScanning}
+                    className="flex items-center gap-4 rounded-2xl border border-outline-variant/20 bg-white px-4 py-4 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-[0.98] disabled:opacity-60"
+                  >
+                    <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <span className="material-symbols-outlined">photo_camera</span>
+                    </span>
+                    <span>
+                      <span className="block text-sm font-bold text-primary">Open Camera</span>
+                      <span className="block text-xs text-on-surface-variant">Take a fresh field photo of the leaf.</span>
+                    </span>
+                  </button>
+                </>
+              )}
             </div>
 
             {isScanning && (

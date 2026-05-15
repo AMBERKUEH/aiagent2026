@@ -26,14 +26,16 @@ def _load_interpreter(model_path: Path):  # pylint: disable=import-outside-tople
     try:
         from tflite_runtime.interpreter import Interpreter  # type: ignore[import-untyped]  # noqa: PLC0415  # pylint: disable=import-outside-toplevel,import-error
         return Interpreter(model_path=str(model_path))
-    except Exception:
+    except Exception as exc1:
+        print(f"DEBUG: Failed to load with tflite_runtime: {exc1}")
         try:
             import tensorflow as tf  # pylint: disable=import-outside-toplevel
             return tf.lite.Interpreter(model_path=str(model_path))
-        except Exception as exc:
+        except Exception as exc2:
+            print(f"DEBUG: Failed to load with tensorflow: {exc2}")
             raise RuntimeError(
-                "Unable to load TFLite interpreter. Install tflite-runtime or tensorflow."
-            ) from exc
+                f"Unable to load TFLite interpreter. tflite_runtime error: {exc1} | tf error: {exc2}"
+            ) from exc2
 
 
 def load_labels() -> list[str]:

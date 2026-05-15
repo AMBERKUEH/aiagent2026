@@ -279,6 +279,15 @@ export default function CommandCenterPage() {
             <p className="text-sm text-slate-600">
               SmartPaddy needs live sensor data to generate your daily recommendation.
             </p>
+            {ctx.errors.length > 0 && (
+              <div className="mt-3 space-y-1">
+                {ctx.errors.map((err, i) => (
+                  <p key={i} className="text-[10px] text-red-500 bg-red-50 px-2 py-1 rounded-md border border-red-100">
+                    {err.message}
+                  </p>
+                ))}
+              </div>
+            )}
           </section>
         )}
 

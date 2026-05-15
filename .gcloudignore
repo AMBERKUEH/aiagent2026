@@ -12,3 +12,7 @@
 node_modules/
 dist/
 backend/cv/data/
+
+# Explicitly UN-IGNORE the CV model artifact
+!backend/cv/artifacts/
+!backend/cv/artifacts/**
